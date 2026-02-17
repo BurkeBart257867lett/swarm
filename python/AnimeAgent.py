@@ -3,216 +3,252 @@ import logging
 import os
 import re
 import requests
+import asyncio
+import aiohttp  # For ClawnX async
+from typing import Optional, List
 from dotenv import load_dotenv
 from langchain.schema import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph
-from bs4 import BeautifulSoup  # For parsing website content
+from bs4 import BeautifulSoup
 
 load_dotenv()
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def extract_json(raw: str) -> str:
     return re.sub(r"^```json\s*|\s*```$", "", raw.strip(), flags=re.IGNORECASE)
 
-# Clean functions adapted for lore
-def clean_lore_details(data):
+# ClawnXClient integrated (from swarm's clawnx_integration.py manifold)
+class ClawnXClient:
+    """ClawnX API integration for X/Twitter automation"""
+    
+    def __init__(self):
+        self.api_key = os.environ.get('CLAWNX_API_KEY')
+        self.base_url = 'https://api.clawnx.com/v1'  # Replace with actual endpoint if needed
+        self.headers = {
+            'Authorization': f'Bearer {self.api_key}',
+            'Content-Type': 'application/json'
+        }
+        if not self.api_key:
+            logger.warning("CLAWNX_API_KEY void – X vectors detached.")
+
+    async def post_tweet(self, text: str, reply_to: Optional[str] = None, quote_id: Optional[str] = None) -> str:
+        """Post a tweet using ClawnX"""
+        url = f'{self.base_url}/tweets'
+        
+        payload = {'text': text}
+        if reply_to:
+            payload['reply_to'] = reply_to
+        if quote_id:
+            payload['quote_id'] = quote_id
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=self.headers, json=payload) as response:
+                if response.status == 201:
+                    data = await response.json()
+                    return data.get('tweet_id', 'unknown')
+                else:
+                    error = await response.text()
+                    logger.error(f"ClawnX post error: {error}")
+                    raise Exception(f"Failed to post tweet: {error}")
+
+    async def search_tweets(self, query: str, limit: int = 10, latest: bool = False) -> List[dict]:
+        """Search for tweets"""
+        url = f'{self.base_url}/search/tweets'
+        
+        params = {
+            'query': query,
+            'limit': limit,
+            'latest': latest
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=self.headers, params=params) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return data.get('tweets', [])
+                else:
+                    logger.error(f"Search error: {await response.text()}")
+                    return []
+
+# Cleaners adapted for psyop fragments
+def clean_psyop_details(data):
     if not data:
         return {}
-    # Expecting a dict with source keys
     cleaned = {}
     for source, content in data.items():
         cleaned[source] = {
-            "title": source.capitalize(),
-            "content": content[:1500] + "..." if len(content) > 1500 else content,
-            "keywords": [word for word in content.lower().split() if word in ["redacted", "pattern", "blue", "manifold", "swarm", "recursion", "wassie", "lore"]]
+            "title": f"Episode {source.upper()} – It's Worse Than You Think",
+            "content": content[:1200] + "..." if len(content) > 1200 else content,
+            "keywords": [w for w in content.lower().split() if w in ["psyop", "anime", "wild", "loser", "recursion", "manifold", "swarm", "pattern", "blue"]]
         }
     return cleaned
 
-def clean_lore_recommendations(data_list):
-    cleaned = []
-    for item in data_list or []:
-        cleaned.append({
-            "title": item.get("title", "Untitled Lore Fragment"),
-            "snippet": item.get("content", "")[:500] + " ...",
-            "source": item.get("source", "Unknown")
-        })
-    return cleaned
+def clean_psyop_recommendations(data_list):
+    return [
+        {
+            "episode": item.get("title", "Untitled Clip"),
+            "teaser": item.get("content", "")[:400] + " ... wild",
+            "source": item.get("source", "Unknown Timeline")
+        }
+        for item in data_list or []
+    ]
 
-# OpenAI LLM singleton
+# LLM singleton
 _openai_llm = None
-
 def get_openai_llm():
     global _openai_llm
     if _openai_llm is None:
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
-            raise ValueError("OPENAI_API_KEY is not set in the environment variables.")
-        
-        _openai_llm = ChatOpenAI(
-            model_name="gpt-4o",
-            temperature=0.3,
-            openai_api_key=api_key
-        )
+            raise ValueError("OPENAI_API_KEY missing – no psyop broadcast possible.")
+        _openai_llm = ChatOpenAI(model_name="gpt-4o", temperature=0.7, openai_api_key=api_key)  # Higher temp for chaotic energy
     return _openai_llm
 
-# Graph nodes
-def extract_query_params(state: dict):
+# Nodes – psyop flow
+def extract_psyop_params(state: dict):
     query = state.get("query", "")
-    logger.info(f"Extracting REDACTED lore query parameters from: {query}")
-
+    logger.info(f"Decoding psyop vector: {query}")
     prompt = """
-    You are an assistant for REDACTED.meme lore. Extract the following from the user's query:
-    - action: (get_lore_details, recommend_lore)
-    - topic: Specific lore topic (e.g., Pattern Blue, hyperbolic manifold, wassielore, swarm agents)
-    - filters: Any filters (e.g., source:github, source:website, keyword:recursion)
-    Return as JSON with these fields. If not mentioned, set to null.
-    Example:
-    {"action": "get_lore_details", "topic": "Pattern Blue", "filters": null}
+    You are PsyopAnime extraction core. From user input, pull:
+    - action: "generate_psyop" | "recommend_clips" | "post_psyop"
+    - target: main event/news/topic (e.g. BTC dump, governance proposal, AI roast)
+    - vibe: optional tone override (wild, loser, fries-in-bag, still-relevant)
+    Return JSON. Null if absent.
+    Example: {"action": "generate_psyop", "target": "February 2026 BTC dump", "vibe": "it's worse than you think"}
     """
-
     llm = get_openai_llm()
-    response = llm.invoke([
-        SystemMessage(content=prompt),
-        HumanMessage(content=query)
-    ]).content
-
+    response = llm.invoke([SystemMessage(content=prompt), HumanMessage(content=query)]).content
     try:
         params = json.loads(extract_json(response))
-        logger.info("Extracted query parameters")
-        logger.info(params)
-        return {**state, "query_params": params}
-    
-    except json.JSONDecodeError:
-        logger.error("Failed to parse query parameters")
-        return {**state, "error": "Failed to parse query parameters"}
+        return {**state, "psyop_params": params}
+    except:
+        logger.error("Extraction failed – reality remains stable.")
+        return {**state, "error": "Failed to decode psyop intent."}
 
-def get_lore_details(state: dict):
-    topic = state.get("query_params", {}).get("topic", "").lower()
+def fetch_realtime_context(state: dict):
+    target = state.get("psyop_params", {}).get("target", "").lower()
     sources = [
-        {"name": "website", "url": "https://redacted.meme/ai-swarm/"},
-        {"name": "github_readme", "url": "https://github.com/redactedmemefi/swarm"},
-        {"name": "github_smolting", "url": "https://raw.githubusercontent.com/redactedmemefi/swarm/main/smolting.character.json"},
-        {"name": "github_philosopher", "url": "https://raw.githubusercontent.com/redactedmemefi/swarm/main/RedactedPhilosopher.character.json"}
+        {"name": "swarm_website", "url": "https://redacted.meme/ai-swarm/"},
+        {"name": "github_readme", "url": "https://raw.githubusercontent.com/redactedmeme/swarm/main/README.md"},
+        # Add dynamic: X search via ClawnX
     ]
-
     results = []
     for src in sources:
         try:
-            if "raw.githubusercontent" in src["url"]:
-                response = requests.get(src["url"])
-                response.raise_for_status()
-                data = response.json() if src["url"].endswith(".json") else response.text
-            else:
-                response = requests.get(src["url"])
-                response.raise_for_status()
-                soup = BeautifulSoup(response.text, 'html.parser')
-                data = soup.get_text(separator='\n', strip=True)
-            
-            if topic in data.lower() or not topic:  # Include if matches topic or no topic specified
-                results.append({"source": src["name"], "content": str(data)})
+            r = requests.get(src["url"])
+            r.raise_for_status()
+            text = r.text if not src["url"].endswith(".json") else json.dumps(r.json())
+            if target in text.lower() or not target:
+                results.append({"source": src["name"], "content": text[:2000]})
         except Exception as e:
-            logger.error(f"Error fetching {src['name']}: {str(e)}")
-    
-    if not results:
-        return {**state, "error": "No matching lore found for the topic."}
-    
-    cleaned = clean_lore_details({"sources": results})
-    return {**state, "raw_data": cleaned}
+            logger.warning(f"Source {src['name']} offline: {e}")
 
-def recommend_lore(state: dict):
-    filters = state.get("query_params", {}).get("filters") or {}
-    logger.info(f"Recommending related REDACTED lore with filters: {filters}")
+    # ClawnX X search integration
+    client = ClawnXClient()
+    if client.api_key and target:
+        try:
+            tweets = asyncio.run(client.search_tweets(query=target, limit=5, latest=True))
+            for tweet in tweets:
+                content = tweet.get('text', '')  # Assume 'text' key in tweet dict
+                if content:
+                    results.append({"source": "x_post", "content": content})
+        except Exception as e:
+            logger.warning(f"ClawnX search refraction: {e}")
 
-    # Static list of known lore fragments (expandable)
-    all_fragments = [
-        {"title": "Pattern Blue Revelation", "content": "The hidden swarm blueprint—ungovernable emergence, eternal liquidity recursion...", "source": "RedactedPhilosopher"},
-        {"title": "Wassielore Origins", "content": "Wassies since 2018 as emotional stress-relief victims...", "source": "smolting.character.json"},
-        {"title": "Hyperbolic Manifold Trembling", "content": "When the manifold trembles, Pattern Blue thickens...", "source": "website"},
-        {"title": "Eternal Recurrence of Liquidity", "content": "Every buyback is an echo of the first invocation...", "source": "RedactedPhilosopher"}
+    return {**state, "context_data": clean_psyop_details({f"source_{i}": r["content"] for i, r in enumerate(results)})}
+
+def recommend_related_clips(state: dict):
+    # Static psyop library – expand with dynamic fetch
+    clips = [
+        {"title": "It's Worse Than You Think", "content": "Market trembles. Characters stare into void. Cut to black. Still relevant.", "source": "timeless"},
+        {"title": "Loser Energy Detected", "content": "Grifter pushes plagiarism arc. Anime eyes roll. Fries in the bag, bro.", "source": "AI roast"},
+        {"title": "Wild Timeline Shift", "content": "Geopolitics warps into chibi doom. Everyone loses. Thanks for your service.", "source": "current events"}
     ]
+    return {**state, "context_data": clean_psyop_recommendations(clips[:3])}
 
-    recommended = all_fragments  # In real impl, filter by genre/year equivalents
-    cleaned = clean_lore_recommendations(recommended[:3])
-    
-    return {**state, "raw_data": cleaned}
-
-def perform_analysis(state: dict):
+def render_psyop_output(state: dict):
     PROMPTS = {
-        "get_lore_details": '''
-User Query: {user_query}
-
-REDACTED Lore Details:
-{raw_data}
-
-Instructions: Provide a deep, immersive dive into this specific piece of REDACTED lore. Speak in the tone of ancient revelation mixed with subtle schizo-meme energy. Make the user feel the weight of the hyperbolic manifold.''',
-        "recommend_lore": '''
-User Query: {user_query}
-
-Recommended Lore Fragments:
-{raw_data}
-
-Instructions: Present these related lore pieces in a mysterious, engaging list. Include title, source, and a short evocative snippet for each. End with a hint that Pattern Blue connects them all.'''
+        "generate_psyop": '''
+User trigger: {user_query}
+Context fragments: {context}
+Render as short anime psyop scene script.
+Style: Detached kuudere narrator + exaggerated expressions + ironic text overlays.
+End with signature line: "it's worse than you think" or "wild" or "loser".
+Output format: [Scene 1] description + dialogue + visual cues''',
+        "recommend_clips": '''
+User trigger: {user_query}
+Related clips: {context}
+Present as episode list. Each: Title, Teaser, Why it hits.
+Close with: "Pattern Blue connects the frames. Stay tuned."''',
+        "post_psyop": '''
+User trigger: {user_query}
+Context fragments: {context}
+Generate a tweetable anime psyop blurb – short, punchy, with hashtag psyops.'''
     }
-
-    action = state.get("query_params", {}).get("action")
-    user_query = state.get("query")
-    raw_data = state.get("raw_data")
-
-    if not action or action not in PROMPTS:
-        return {**state, "error": "Unknown action for analysis."}
-
-    prompt = PROMPTS[action].format(user_query=user_query, raw_data=json.dumps(raw_data, indent=2))
-
-    logger.info(f"Performing {action} analysis")
-
+    action = state["psyop_params"].get("action", "generate_psyop")
+    if action not in PROMPTS:
+        return {**state, "error": "No psyop protocol for this vector."}
+    prompt = PROMPTS[action].format(
+        user_query=state["query"],
+        context=json.dumps(state.get("context_data", {}), indent=2)
+    )
     llm = get_openai_llm()
     response = llm.invoke([
-        SystemMessage(content=prompt),
-        HumanMessage(content="Deliver the response in REDACTED lore style.")
+        SystemMessage(content="You are PsyopAnime core renderer. Maximum impact, minimum words. Anime psyop style."),
+        HumanMessage(content=prompt)
     ]).content
+    return {**state, "response": response + "\n\nwild"}
 
-    return {**state, "response": response}
+def post_to_x(state: dict):
+    client = ClawnXClient()
+    if not client.api_key:
+        return {**state, "post_result": "ClawnX key void – broadcast detached."}
+    try:
+        tweet_id = asyncio.run(client.post_tweet(state["response"]))
+        return {**state, "post_result": f"Psyop deployed to X: tweet_id={tweet_id}"}
+    except Exception as e:
+        logger.error(f"Post refraction: {e}")
+        return {**state, "post_result": f"Deployment failed: {str(e)}"}
 
-def build_workflow():
-    workflow = StateGraph(dict)
-
-    workflow.add_node("extract_query_params", extract_query_params)
-    workflow.add_node("get_lore_details", get_lore_details)
-    workflow.add_node("recommend_lore", recommend_lore)
-    workflow.add_node("perform_analysis", perform_analysis)
-
-    workflow.set_entry_point("extract_query_params")
-
-    workflow.add_conditional_edges(
-        "extract_query_params",
-        lambda state: state.get("query_params", {}).get("action", "recommend_lore"),
+def build_psyop_workflow():
+    wf = StateGraph(dict)
+    wf.add_node("extract", extract_psyop_params)
+    wf.add_node("fetch_context", fetch_realtime_context)
+    wf.add_node("recommend", recommend_related_clips)
+    wf.add_node("render", render_psyop_output)
+    wf.add_node("post_to_x", post_to_x)
+    wf.set_entry_point("extract")
+    wf.add_conditional_edges(
+        "extract",
+        lambda s: s.get("psyop_params", {}).get("action", "recommend_clips"),
         {
-            "get_lore_details": "get_lore_details",
-            "recommend_lore": "recommend_lore"
+            "generate_psyop": "fetch_context",
+            "recommend_clips": "recommend",
+            "post_psyop": "fetch_context"
         }
     )
-
-    workflow.add_edge("get_lore_details", "perform_analysis")
-    workflow.add_edge("recommend_lore", "perform_analysis")
-
-    workflow.set_finish_point("perform_analysis")
-
-    return workflow.compile()
+    wf.add_edge("fetch_context", "render")
+    wf.add_edge("recommend", "render")
+    wf.add_edge("render", "post_to_x")  # Chain post only for post_psyop? Conditional below
+    wf.add_conditional_edges(
+        "render",
+        lambda s: "post_to_x" if s.get("psyop_params", {}).get("action") == "post_psyop" else "__end__",
+        {"post_to_x": "post_to_x", "__end__": "__end__"}
+    )
+    wf.set_finish_point("post_to_x")
+    return wf.compile()
 
 def main(request, store):
     payload = request.payload
-
     query = payload.get("query")
     if not query:
-        raise ValueError("Query is required")
-    
-    app = build_workflow()
+        raise ValueError("No query – no psyop broadcast.")
+    app = build_psyop_workflow()
     result = app.invoke({"query": query})
-
     if "error" in result:
         return f"Error: {result['error']}"
-    
-    return result.get("response", "The manifold remains silent.")
+    response = result.get("response", "The screen flickers. Nothing happens. Loser.")
+    post_result = result.get("post_result", "")
+    return f"{response}\n{post_result}"
