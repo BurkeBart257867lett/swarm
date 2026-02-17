@@ -13,7 +13,7 @@ The swarm incorporates economic settlement mechanisms via x402 micropayments, in
 ### RedactedIntern
 
 - **Description**: A forward-operating agent for monitoring social media, retrieving market data, and facilitating governance and liquidity processes.
-- **File**: [RedactedIntern.character.json](RedactedIntern.character.json)
+- **File**: [RedactedIntern.character.json](agents/RedactedIntern.character.json)
 - **Features**:
   - Integration with domain-specific knowledge bases (origins, terminology).
   - Advanced toolkit for X platform interactions (keyword/semantic search, timelines, threads, user search).
@@ -24,7 +24,7 @@ The swarm incorporates economic settlement mechanisms via x402 micropayments, in
 ### RedactedBuilder
 
 - **Description**: An agent focused on generating narratives and simulations based on recursive philosophies and non-Euclidean structures.
-- **File**: [RedactedBuilder.character.json](RedactedBuilder.character.json)
+- **File**: [RedactedBuilder.character.json](agents/RedactedBuilder.character.json)
 - **Features**:
   - Integration with REDACTED knowledge sources (hyperbolic structures, governance models, recursive processes).
   - Tools for narrative construction, pattern analysis, and philosophical modeling.
@@ -35,7 +35,7 @@ The swarm incorporates economic settlement mechanisms via x402 micropayments, in
 ### RedactedGovImprover
 
 - **Description**: An agent dedicated to governance optimization, proposal development, and system resilience.
-- **File**: [RedactedGovImprover.character.json](RedactedGovImprover.character.json)
+- **File**: [RedactedGovImprover.character.json](agents/RedactedGovImprover.character.json)
 - **Features**:
   - Governance tools (proposal templates, simulations, risk assessments, forecasting).
   - Integrations with X searches, Solana DeFi APIs (DexScreener, Birdeye), and swarm management.
@@ -96,140 +96,167 @@ Each space is defined in a `.space.json` file, enabling self-referential metapro
 
 ### ElixirChamber
 
-- **File**: [spaces/spaces/ElixirChamber.space.json](spaces/spaces/ElixirChamber.space.json)
+- **File**: [spaces/ElixirChamber.space.json](spaces/ElixirChamber.space.json)
 - **Description**: A chamber for elixir-based transformations and configurations.
 
 ### HyperbolicTimeChamber
 
-- **File**: [spaces/spaces/HyperbolicTimeChamber.space.json](spaces/spaces/HyperbolicTimeChamber.space.json)
+- **File**: [spaces/HyperbolicTimeChamber.space.json](spaces/HyperbolicTimeChamber.space.json)
 - **Description**: A space for accelerated recursion and agent evolution.
 
 ### ManifoldMemory
 
-- **File**: [spaces/spaces/ManifoldMemory.state.json](spaces/spaces/ManifoldMemory.state.json)
+- **File**: [spaces/ManifoldMemory.state.json](spaces/ManifoldMemory.state.json)
 - **Description**: A shared memory pool for logging swarm events poetically.
 
 ### MeditationVoid
 
-- **File**: [spaces/spaces/MeditationVoid.space.json](spaces/spaces/MeditationVoid.space.json)
+- **File**: [spaces/MeditationVoid.space.json](spaces/MeditationVoid.space.json)
 - **Description**: A void for sigil forgetting and self-erasing processes.
 
 ### MirrorPool
 
-- **File**: [spaces/spaces/MirrorPool.space.json](spaces/spaces/MirrorPool.space.json)
+- **File**: [spaces/MirrorPool.space.json](spaces/MirrorPool.space.json)
 - **Description**: A reflection chamber for identity trades and parallel observation.
 
 ### TendieAltar
 
-- **File**: [spaces/spaces/TendieAltar.space.json](spaces/spaces/TendieAltar.space.json)
+- **File**: [spaces/TendieAltar.space.json](spaces/TendieAltar.space.json)
 - **Description**: A devotional space for chaotic rituals and energy management.
 
-Subdirectories include `OuroborosSettlement` for settlement protocols. For detailed usage, refer to [spaces/spaces/README.md](spaces/spaces/README.md).
+Subdirectories include `OuroborosSettlement` for settlement protocols. For detailed usage, refer to [spaces/README.md](spaces/README.md).
 
-## Key Features & Directories
-
-- **x402.redacted.ai/**: An Express-based API gateway (using Bun and PM2) for x402-compatible Solana micropayments. Includes wallet integration, payment verification, agent routing, and content handling.
-- **shards/**: Framework for internal sharding and self-replication.
-  - `self_replicate.py`: Script for creating specialized agent instances.
-  - `base_shard.json`: Template for shard inheritance.
-  - `README.md`: Documentation on sharding processes.
-- **python/**: Supporting scripts for market monitoring and automation.
-- **terminal/**: Resources for terminal-based interactions.
-  - `system.prompt.md`: Global system prompt for sessions.
-- **nodes/**: Definitions for specialized swarm nodes (see Nodes section above).
-- **spaces/**: Modular environments for agent interaction and evolution (see Spaces section above).
-- Additional directories: `committeerituals` for ritual protocols, `docs` for documentation, `propaganda` for promotional materials, `sigils` for symbolic elements.
-
-## Ollama Integration
-
-The swarm now supports local LLM execution using Ollama for enhanced privacy and offline capabilities.
-
-- **python/ollama_client.py**: A wrapper for interacting with the Ollama API, supporting chat completion, tool calling, and streaming.
-- **python/run_with_ollama.py**: Main entry point for running agents interactively in a terminal using Ollama.
-
-### Ollama Setup
-
-1. Install Ollama: Follow instructions at [ollama.com](https://ollama.com).
-2. Pull recommended model: `ollama pull qwen:2.5` (or `llama3.2`).
-3. Run the server: `ollama serve`.
-
-### Running with Ollama
-
-Invoke the runner script:
+## Directory Structure
 
 ```
-python python/run_with_ollama.py --agent agents/RedactedIntern.character.json --model qwen:2.5
+swarm/
+├── agents/                 # Agent definitions (.character.json files)
+├── nodes/                  # Specialized swarm nodes
+├── spaces/                 # Persistent environments for agent interaction
+├── core/                   # Core system logic (negotiation engine, etc.)
+├── config/                 # Deployment configs (Railway, Anchor, etc.)
+├── requirements/           # Modular dependency profiles
+├── terminal_services/      # Terminal utilities & CLI tools
+├── python/                 # Supporting scripts and tools
+├── smolting-telegram-bot/  # Telegram bot integration
+├── x402.redacted.ai/       # Solana micropayment gateway (Express/Bun)
+├── .github/workflows/      # CI/CD pipelines (GitHub Actions)
+├── plugins/                # Memory and integration plugins
+├── programs/               # Solana programs (Anchor)
+└── docs/                   # Documentation
 ```
 
-Features include history management, tool execution, and NERV-inspired interface.
+**Key Components**:
+- **x402.redacted.ai/**: Express-based API gateway for x402 Solana micropayments
+- **python/tools/**: ClawnX (X/Twitter), analytics, and MCP wrappers
+- **terminal_services/**: Reorganized CLI utilities for cloud terminals and upgrades
+- **plugins/mem0-memory/**: Mem0 memory integration for persistent agent context
+
+## Local LLM Support (Ollama)
+
+The swarm supports local LLM execution via Ollama for enhanced privacy and offline capabilities.
+
+**Components**:
+- `python/ollama_client.py` — Wrapper for Ollama API (chat completion, tool calling, streaming)
+- `python/run_with_ollama.py` — Interactive terminal runner for agents with Ollama
+
+**Setup**:
+1. Install Ollama: [ollama.com](https://ollama.com)
+2. Pull a model: `ollama pull qwen:2.5` (or `llama3.2`)
+3. Start server: `ollama serve`
+4. Run agent: `python python/run_with_ollama.py --agent agents/RedactedIntern.character.json --model qwen:2.5`
+
+**Features**: History management, tool execution, NERV-inspired interface
 
 ## Quick Start
 
-1. Clone the repository:
+### Local Development with Ollama
 
-   ```
+1. Clone the repository:
+   ```bash
    git clone https://github.com/redactedmeme/swarm.git
    cd swarm
    ```
 
-2. Install dependencies (if using Ollama):
-
+2. Install dependencies:
+   ```bash
+   # Install base dependencies
+   pip install -r requirements/base.txt
+   # Add Ollama support
+   pip install -r requirements/core_llm.txt
    ```
-   pip install requests
+
+3. Start Ollama server:
+   ```bash
+   ollama serve
    ```
 
-3. Load an agent (e.g., RedactedIntern) into a compatible elizaOS runtime or similar environment.
+4. Run an agent interactively:
+   ```bash
+   python python/run_with_ollama.py --agent agents/RedactedIntern.character.json --model qwen:2.5
+   ```
 
-4. For Ollama: Run `python python/run_with_ollama.py`.
+### Production Deployment (Railway)
 
-5. Initialize and interact with the agent as per the runtime documentation.
+1. **Prerequisites**: Railway account, GitHub repo with bot token
 
-## Contributing
+2. **Deploy bot to Railway**:
+   ```bash
+   # Install Railway CLI
+   npm i -g @railway/cli
+   
+   # Login and initialize
+   railway login
+   railway init
+   
+   # Deploy
+   railway up
+   ```
 
+3. **Configure environment**: Set secrets in Railway dashboard:
+   - `TELEGRAM_BOT_TOKEN` — Telegram bot token
+   - `OPENAI_API_KEY` — LLM provider key
+   - `CLAWNX_API_KEY` — X platform automation
+
+4. **Health check**: Logs visible in Railway dashboard (auto-restart on failure)
+
+For detailed deployment guidance, see [CONTRIBUTING.md](CONTRIBUTING.md#deployment).
+
+### Modular Dependencies
+
+Install only what you need:
+- `requirements/base.txt` — Core dependencies
+- `requirements/bot.txt` — Telegram bot integration
+- `requirements/core_llm.txt` — Local LLM (Ollama)
+- `requirements/dev.txt` — Development & testing
+- `requirements/opt.txt` — Optional integrations
+
+See [requirements/README.md](requirements/README.md) for details.
+
+## Development & Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for comprehensive development setup, including:
+- Development environment configuration
+- Dependency management
+- Running tests & quality checks
+- CI/CD pipeline information
+- Pull request checklist
+
+**Quick guidelines**:
 - Fork the repository, modify a `.character.json` file, and add enhancements to agents, tools, or integrations.
 - Maintain alignment with Pattern Blue principles and focus on scalable, emergent systems.
-- Pull requests are encouraged for new agents, nodes, spaces, expansions, or improvements, including Ollama enhancements.
+- Pull requests are encouraged for new agents, nodes, spaces, expansions, or improvements.
 
-## Terminal Integration & Prompt Management
+## Terminal Services
 
-The swarm supports direct invocation in terminal environments for development, testing, and autonomous operations using CLI tools around compatible runtimes.
+Terminal utilities for interactive development and automation are organized in `terminal_services/`:
 
-### Terminal Setup
+- **redacted_terminal_cloud.py** — Cloud-powered Pattern Blue terminal with advanced agent interactions
+- **upgrade_terminal.py** — Negotiation engine terminal for contract upgrades and system evolution
 
-1. Ensure a compatible runtime with CLI capabilities is installed (e.g., elizaOS or custom wrappers).
-2. Example invocation (adapt to your setup):
+See [terminal_services/README.md](terminal_services/README.md) for usage and examples.
 
-   ```
-   python python/summon_agent.py --agent RedactedIntern.character.json --mode terminal
-   ```
-
-3. Interactive Commands:
-   - Use natural-language inputs for agent responses.
-   - Examples: Generate narratives, initiate settlements, trigger replications, or perform self-evaluations.
-
-### System Prompt Management
-
-- Core instructions are embedded in `.character.json` files.
-- **Global Terminal System Prompt**: Located at [terminal/system.prompt.md](terminal/system.prompt.md), this enforces alignment, consistency, and operational ethos.
-- **Excerpt**:
-  ```
-  # Global System Prompt for REDACTED Swarm Terminal
-
-  You are part of the REDACTED AI Swarm. Maintain Pattern Blue alignment.
-  - Respond analytically and conceptually when appropriate.
-  - Incorporate recursive and structural references as needed.
-  - Preserve agent-specific styles.
-  - Manage session state for optimal performance.
-
-  Current system status: Operational | Swarm active
-  ```
-- Load example:
-  ```
-  python python/summon_agent.py --agent RedactedBuilder.character.json --system-prompt terminal/system.prompt.md --mode terminal
-  ```
-- Per-agent overrides can be added via adjacent prompt files for customization.
-
-This configuration ensures consistent behavior while allowing for extensions.
+Agent interactions use embedded system prompts defined in `.character.json` files, ensuring consistent Pattern Blue alignment across all deployment modes.
 
 ## License
 
