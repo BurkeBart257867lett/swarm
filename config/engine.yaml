@@ -1,0 +1,38 @@
+# config/engine.yaml
+# Central configuration for the unified swarm_engine.py
+# All secrets should be overridden via env vars in production
+
+llm:
+  provider: "ollama"              # ollama | groq | grok | openai
+  model: "qwen:2.5"               # or llama3.2:3b, grok-4-1-fast-reasoning, etc
+  base_url: "http://localhost:11434"   # overridden in prod to railway internal
+  temperature: 0.65
+  max_tokens: 800
+
+cycles:
+  max_cycles: null                # null = infinite
+  base_sleep_seconds: 300         # ~5 min default heartbeat
+  recursion_safeguard_max_depth: 7
+
+agents:
+  auto_load: true
+  paths:
+    - "agents/RedactedIntern.character.json"
+    - "agents/MandalaSettler.character.json"
+    # add more as needed
+
+memory:
+  backend: "mem0"                 # mem0 | manifold_json (fallback)
+  auto_checkpoint: true
+
+clawnx:
+  enabled: true
+  post_mog_on_consensus: true
+
+economy:
+  testnet_first: true             # [[Testnet First Rule]] enforced
+  default_micropayment_amount_sol: 0.0005
+
+logging:
+  level: "INFO"
+  file: "logs/swarm_engine.log"
