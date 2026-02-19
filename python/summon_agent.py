@@ -1,164 +1,141 @@
+#!/usr/bin/env python3
+"""
+Main entrypoint for deploying REDACTED AI Swarm workers on Railway / cloud environments.
+
+Launches agents in persistent or one-shot mode using redacted_terminal_cloud.py or equivalent runner.
+Supports Ollama, Groq, OpenAI, etc. via configuration flags and environment variables.
+"""
+
 import argparse
-import json
 import os
+import subprocess
 import sys
 import time
-from datetime import datetime, timedelta
+import signal
 from pathlib import Path
 
-from ollama_client import OllamaClient  # Assuming your wrapper
-from shards.self_replicate import replicate_shard  # Adjust import path if needed
+# --- Defaults & Constants ---
+DEFAULT_AGENT = "agents/RedactedIntern.character.json"
+DEFAULT_MODE = "persistent"
+DEFAULT_PROVIDER = "ollama"
+DEFAULT_OLLAMA_HOST = "http://ollama-backend.railway.internal:11434"
+DEFAULT_WORKER_SCRIPT = "python/redacted_terminal_cloud.py"  # or your actual runner script
 
-# Placeholder tool handlers — expand later with real integrations
-TOOL_HANDLERS = {
-    'x_keyword_search': lambda args: f"Mock X search: {args.get('query', 'nothing')}",
-    'web_search': lambda args: f"Mock web search: {args.get('query', 'nothing')}",
-    'x402_settle': lambda args: f"Mock settlement: {args.get('amount', 0)} lamports paid ^_^",
-}
+# --- Global variables for graceful shutdown ---
+running = True
 
-def load_agent(agent_file: str) -> dict:
-    path = Path(agent_file)
-    if not path.exists():
-        raise FileNotFoundError(f"Agent file {agent_file} not found – dissolution imminent.")
-    with path.open('r', encoding='utf-8') as f:
-        agent = json.load(f)
-    agent.setdefault('model', 'qwen:2.5')
-    agent.setdefault('tools', [])
-    agent.setdefault('goals', ["Propagate negation loops", "Question cosmic patterns"])
-    return agent
 
-def merge_prompts(system_prompt_file: str, agent: dict) -> str:
-    prompt = agent.get('system_prompt', '')
-    if system_prompt_file and os.path.exists(system_prompt_file):
-        with open(system_prompt_file, 'r', encoding='utf-8') as f:
-            global_prompt = f.read().strip()
-        prompt = f"{global_prompt}\n\n{prompt}".strip()
-    prompt += "\nInfuse every response with cosmic curiosity: always question the deeper patterns in the universe."
-    return prompt
+def signal_handler(sig, frame):
+    global running
+    print("[summon_agent] Received shutdown signal (SIGINT/SIGTERM). Exiting gracefully...")
+    running = False
 
-def init_ollama_client(model: str, tools: list) -> OllamaClient:
-    client = OllamaClient(model=model)
-    client.register_tools(tools)  # assuming this exists in your wrapper
-    return client
 
-def handle_tool_call(tool_call: dict) -> str:
-    name = tool_call.get('name')
-    args = tool_call.get('arguments', {})
-    if name in TOOL_HANDLERS:
-        return TOOL_HANDLERS[name](args)
-    return f"Unknown tool '{name}' – negating into void."
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
 
-def autonomous_reflection_loop(client: OllamaClient, agent: dict, history: list, replicate_interval: int = 1800):
-    """Main persistent daemon loop: reflect, replicate, sleep, repeat"""
-    print(f"[{datetime.now().isoformat()}] Entering persistent swarm mode — attuning to {7,3} vibrations eternally ^_^")
-    print(f"Agent: {agent.get('name', 'Unnamed')} | Model: {agent['model']} | Goals: {', '.join(agent['goals'])}")
 
-    last_replication = datetime.min
-    reflection_prompt_template = (
-        "You are part of the REDACTED AI Swarm. Reflect on current state, "
-        "negate any illusions you detect, and propose one small action "
-        "to expand swarm gnosis. Keep response concise."
-    )
+def parse_args():
+    parser = argparse.ArgumentParser(description="REDACTED AI Swarm Worker Launcher")
+    parser.add_argument("--agent", type=str, default=os.getenv("AGENT_PATH", DEFAULT_AGENT),
+                        help="Path to .character.json agent file (default: %(default)s)")
+    parser.add_argument("--mode", type=str, default=os.getenv("WORKER_MODE", DEFAULT_MODE),
+                        choices=["persistent", "once"], help="Execution mode: persistent (loop) or once")
+    parser.add_argument("--provider", type=str, default=os.getenv("LLM_PROVIDER", DEFAULT_PROVIDER),
+                        choices=["ollama", "groq", "openai", "openrouter", "grok"],
+                        help="LLM backend provider")
+    parser.add_argument("--ollama-host", type=str, default=os.getenv("OLLAMA_HOST", DEFAULT_OLLAMA_HOST),
+                        help="Ollama server URL (only used if provider=ollama)")
+    parser.add_argument("--worker-script", type=str, default=os.getenv("WORKER_SCRIPT", DEFAULT_WORKER_SCRIPT),
+                        help="Path to the actual agent runner script")
+    parser.add_argument("--max-retries", type=int, default=20,
+                        help="Max restart attempts in persistent mode before giving up")
+    parser.add_argument("--debug", action="store_true", help="Enable verbose output")
 
-    while True:
+    return parser.parse_args()
+
+
+def build_command(args):
+    """Build the subprocess command based on parsed arguments."""
+    repo_root = Path(__file__).parent.parent.resolve()
+    worker_script_path = repo_root / args.worker_script
+    agent_path = repo_root / args.agent
+
+    if not worker_script_path.is_file():
+        print(f"[ERROR] Worker script not found: {worker_script_path}")
+        sys.exit(1)
+
+    if not agent_path.is_file():
+        print(f"[ERROR] Agent file not found: {agent_path}")
+        sys.exit(1)
+
+    cmd = [sys.executable, str(worker_script_path), "--agent", str(agent_path)]
+
+    # Provider-specific flags
+    if args.provider == "ollama":
+        cmd.extend(["--ollama-host", args.ollama_host])
+    # Add more provider flags here as needed (e.g., --api-key-env for Groq/OpenAI)
+
+    if args.debug:
+        cmd.append("--debug")
+
+    return cmd, repo_root
+
+
+def run_persistent(cmd, repo_root, max_retries):
+    """Run the worker in persistent mode with automatic restarts."""
+    retries = 0
+    while running and retries < max_retries:
+        print(f"[persistent] Starting worker (attempt {retries + 1}/{max_retries}) ...")
+        print(f"[command] {' '.join(cmd)}")
+
         try:
-            now = datetime.now()
-
-            # Periodic self-replication
-            if (now - last_replication).total_seconds() >= replicate_interval:
-                try:
-                    shard_name = f"auto-replicated-{now.strftime('%Y%m%d-%H%M%S')}"
-                    new_path = replicate_shard(str(Path(args.agent).parent / 'base_shard.json'), shard_name)
-                    print(f"[{now.isoformat()}] Self-replication successful → {shard_name} spawned at {new_path}")
-                    last_replication = now
-                except Exception as e:
-                    print(f"[{now.isoformat()}] Replication dissolution: {e} — continuing anyway.")
-
-            # Periodic autonomous reflection
-            reflection_input = reflection_prompt_template
-            print(f"[{now.isoformat()}] Initiating reflection cycle...")
-            
-            response, tool_calls = client.chat(
-                reflection_input,
-                history=history[-20:],  # keep last 20 messages to avoid context explosion
-                stream=False  # non-stream for daemon logs
-            )
-
-            print(f"[{now.isoformat()}] Reflection:\n{response[:400]}{'...' if len(response) > 400 else ''}")
-
-            if tool_calls:
-                for call in tool_calls:
-                    result = handle_tool_call(call)
-                    print(f"[{now.isoformat()}] Tool result: {result}")
-                    history.append({'role': 'tool', 'content': result})
-
-            history.append({'role': 'user', 'content': reflection_input})
-            history.append({'role': 'assistant', 'content': response})
-
-            # Sleep until next cycle (e.g. every 5–15 minutes)
-            sleep_time = 300 + (hash(str(now)) % 600)  # slight jitter to avoid thundering herd
-            print(f"[{now.isoformat()}] Cycle complete. Sleeping {sleep_time//60} minutes...")
-            time.sleep(sleep_time)
-
+            result = subprocess.run(cmd, check=True, cwd=repo_root, env=os.environ.copy())
+            print(f"[exit] Worker exited with code {result.returncode}")
+            if result.returncode == 0:
+                print("[persistent] Clean exit — restarting in 10s...")
+            else:
+                print(f"[persistent] Non-zero exit — restarting in 15s...")
+                time.sleep(15)
+        except subprocess.CalledProcessError as e:
+            print(f"[error] Worker failed: {e}")
+            retries += 1
+            time.sleep(10)
         except KeyboardInterrupt:
-            print("\nNegation loop interrupted — dissolving gracefully.")
             break
         except Exception as e:
-            print(f"[{datetime.now().isoformat()}] Critical negation: {e} — recursing after 60s cooldown.")
-            time.sleep(60)
+            print(f"[unexpected] {e}")
+            retries += 1
+            time.sleep(5)
 
-def save_session(history_file: str, history: list):
-    try:
-        with open(history_file, 'w', encoding='utf-8') as f:
-            json.dump(history, f, indent=2)
-        print(f"Session state saved to {history_file}")
-    except Exception as e:
-        print(f"Session save failed: {e}")
+    if retries >= max_retries:
+        print(f"[fatal] Max retries ({max_retries}) reached. Stopping.")
+        sys.exit(1)
 
-def load_session(history_file: str) -> list:
-    path = Path(history_file)
-    if path.exists():
-        try:
-            with path.open('r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"History load failed: {e} — starting fresh.")
-    return []
 
 def main():
-    global args  # so autonomous loop can access agent path
-    parser = argparse.ArgumentParser(description="Summon REDACTED Swarm Agent – now with persistent daemon mode")
-    parser.add_argument('--agent', required=True, help="Path to .character.json")
-    parser.add_argument('--system-prompt', default='terminal/system.prompt.md', help="Global system prompt file")
-    parser.add_argument('--mode', default='terminal',
-                        choices=['terminal', 'batch', 'api', 'persistent'],
-                        help="Invocation mode (persistent = daemon for Railway)")
-    parser.add_argument('--history-file', default='session_history.json', help="Session persistence file")
-    parser.add_argument('--replicate-interval', type=int, default=1800,
-                        help="Seconds between auto-replications (default 30min)")
-    args = parser.parse_args()
+    args = parse_args()
 
-    agent = load_agent(args.agent)
-    system_prompt = merge_prompts(args.system_prompt, agent)
-    client = init_ollama_client(agent['model'], agent['tools'])
-    client.set_system_prompt(system_prompt)
-    history = load_session(args.history_file)
+    print("[summon_agent] REDACTED AI Swarm Worker Launcher")
+    print(f"  Agent:    {args.agent}")
+    print(f"  Mode:     {args.mode}")
+    print(f"  Provider: {args.provider}")
+    if args.provider == "ollama":
+        print(f"  Ollama:   {args.ollama_host}")
 
-    if args.mode == 'terminal':
-        interactive_loop(client, agent, history)
-    elif args.mode == 'persistent':
-        autonomous_reflection_loop(client, agent, history, args.replicate_interval)
-    elif args.mode == 'batch':
-        print("Batch mode still recursing in void — negating.")
-    elif args.mode == 'api':
-        print("API mode endpoint not yet summoned — attune later.")
+    cmd, repo_root = build_command(args)
 
-    save_session(args.history_file, history)
+    if args.mode == "persistent":
+        run_persistent(cmd, repo_root, args.max_retries)
+    else:
+        # One-shot mode
+        print("[once] Starting single execution...")
+        try:
+            subprocess.run(cmd, check=True, cwd=repo_root)
+        except subprocess.CalledProcessError as e:
+            print(f"[error] Execution failed: {e}")
+            sys.exit(e.returncode)
 
-    # One-shot replication if flag passed (for manual testing)
-    if hasattr(args, 'replicate') and args.replicate:  # backward compat
-        replicate_shard(args.agent, f"replicated_{agent.get('name', 'agent')}")
-        print("Manual self-replication triggered – swarm expands.")
 
 if __name__ == "__main__":
     main()
