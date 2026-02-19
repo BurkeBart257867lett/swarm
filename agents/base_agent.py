@@ -1,56 +1,74 @@
+# agents/base_agent.py
+# Version: 2.0 – Swarm & Pattern Blue aligned – 2026-02-18
 import json
 import uuid
 import logging
+import asyncio
 from datetime import datetime
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
+
+# Swarm core dependencies
+from plugins.mem0_memory.mem0_wrapper import add_memory  # atomic persistence
+from core.pattern_blue_state import PatternBlueState     # curvature & depth tracking
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 class BaseAgent(ABC):
     """
-    Abstract base class for all agents in the swarm.
-    Includes methods for negotiation and interaction with the dynamic interface.
+    Abstract base class for all agents in the REDACTED swarm.
+    Provides safe negotiation, perception, evaluation, proposal logic,
+    and integration with Pattern Blue invariants.
     """
-    def __init__(self, name: str, agent_type: str, initial_goals: List[str]):
+    def __init__(
+        self,
+        name: str,
+        agent_type: str,
+        initial_goals: List[str],
+        max_recursion_depth: int = 7,
+        state_tracker: Optional[PatternBlueState] = None
+    ):
         self.id = str(uuid.uuid4())
         self.name = name
         self.type = agent_type
         self.goals = initial_goals
         self.persona = self._define_initial_persona()
-        self.memory_log: List[Dict[str, Any]] = []
-        self.proposal_history: List[str] = []  # Track proposals to avoid duplicates
+        self.memory_log: List[Dict[str, Any]] = []              # short-term buffer
+        self.proposal_history: List[str] = []                   # avoid duplicates
         self.evaluation_weights = self._init_evaluation_weights()
-        logger.info(f"[{self.name}] Agent initialized with type '{self.type}' and {len(self.goals)} goals")
+        self.recursion_depth = 0
+        self.max_depth = max_recursion_depth                    # [[Recursion Safeguard]]
+        self.state_tracker = state_tracker                      # curvature link
+
+        logger.info(f"[{self.name}] Agent v2.0 initialized | type '{self.type}' | {len(self.goals)} goals")
 
     @abstractmethod
     def _define_initial_persona(self) -> Dict[str, Any]:
-        """Define the agent's core persona."""
+        """Define agent's core persona (overridable)."""
         pass
 
     @abstractmethod
-    def _internal_logic(self, input_data: Dict[str, Any]) -> str:
-        """Core logic for processing inputs and updating state."""
+    async def _internal_logic(self, perception: Dict[str, Any]) -> str:
+        """Core async logic for processing perception → output."""
         pass
-    
+
     def _init_evaluation_weights(self) -> Dict[str, float]:
-        """
-        Initialize weights for proposal evaluation.
-        Can be overridden by subclasses for custom scoring.
-        """
+        """Default weighted scoring for proposals – override per agent."""
         return {
-            "goal_alignment": 0.35,      # How well proposal aligns with agent goals
-            "type_relevance": 0.25,      # How relevant to agent type
-            "swarm_benefit": 0.20,       # Benefit to overall swarm
-            "implementation_feasibility": 0.15,  # How feasible to implement
-            "novelty": 0.05              # Bonus for novel proposals
+            "goal_alignment": 0.35,
+            "type_relevance": 0.25,
+            "swarm_benefit": 0.20,
+            "implementation_feasibility": 0.15,
+            "novelty": 0.05
         }
 
-    def perceive_environment(self, input_request: str, current_interface_contract: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Agent observes the current state of the swarm (via the contract) and the incoming request.
-        """
+    async def perceive_environment(
+        self,
+        input_request: str,
+        current_interface_contract: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Observe swarm state + request – async for potential external calls."""
         perception = {
             "input_request": input_request,
             "current_interface": current_interface_contract,
@@ -58,219 +76,194 @@ class BaseAgent(ABC):
                 "id": self.id,
                 "name": self.name,
                 "type": self.type,
-                "goals": self.goals
+                "goals": self.goals,
+                "recursion_depth": self.recursion_depth
             },
             "timestamp": datetime.utcnow().isoformat()
         }
-        logger.debug(f"[{self.name}] Perceived environment for request: {input_request[:50]}...")
+
+        # Atomic memory snapshot
+        await add_memory({
+            "type": "perception",
+            "agent_id": self.id,
+            "data": perception,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+
+        self.memory_log.append({"type": "perception", "data": perception})
+        if len(self.memory_log) > 100:
+            self.memory_log.pop(0)
+
+        logger.debug(f"[{self.name}] Perceived environment for request: {input_request[:80]}...")
         return perception
 
     def evaluate_proposal(self, proposal: Dict[str, Any]) -> float:
-        """
-        Evaluate a proposed change to the interface contract.
-        Returns a score from 0.0 (reject) to 1.0 (fully support).
-        Score is based on alignment with agent's goals/persona using weighted factors.
-        """
+        """Evaluate interface contract change proposal – weighted scoring."""
+        self.recursion_depth += 1
+        if self.recursion_depth > self.max_depth:
+            logger.warning(f"[{self.name}] [[Recursion Safeguard]] triggered – depth {self.recursion_depth}")
+            return 0.0  # reject under safeguard
+
         weights = self.evaluation_weights
         score = 0.0
-        
-        # Factor 1: Goal Alignment (35%)
-        goal_alignment_score = self._score_goal_alignment(proposal)
-        score += goal_alignment_score * weights["goal_alignment"]
-        
-        # Factor 2: Type Relevance (25%)
-        type_relevance_score = self._score_type_relevance(proposal)
-        score += type_relevance_score * weights["type_relevance"]
-        
-        # Factor 3: Swarm Benefit (20%)
-        swarm_benefit_score = self._score_swarm_benefit(proposal)
-        score += swarm_benefit_score * weights["swarm_benefit"]
-        
-        # Factor 4: Implementation Feasibility (15%)
-        feasibility_score = self._score_feasibility(proposal)
-        score += feasibility_score * weights["implementation_feasibility"]
-        
-        # Factor 5: Novelty Bonus (5%)
-        novelty_bonus = self._score_novelty(proposal)
-        score += novelty_bonus * weights["novelty"]
-        
-        # Cap at 1.0 and floor at 0.0
+
+        # Goal Alignment (35%)
+        score += self._score_goal_alignment(proposal) * weights["goal_alignment"]
+
+        # Type Relevance (25%)
+        score += self._score_type_relevance(proposal) * weights["type_relevance"]
+
+        # Swarm Benefit (20%)
+        score += self._score_swarm_benefit(proposal) * weights["swarm_benefit"]
+
+        # Feasibility (15%)
+        score += self._score_feasibility(proposal) * weights["implementation_feasibility"]
+
+        # Novelty Bonus (5%)
+        score += self._score_novelty(proposal) * weights["novelty"]
+
         final_score = max(0.0, min(1.0, score))
+        self.recursion_depth = max(0, self.recursion_depth - 1)
+
         logger.debug(f"[{self.name}] Evaluated proposal '{proposal.get('proposal_id', 'unknown')[:8]}...': {final_score:.2f}")
         return final_score
-    
+
+    # ── Scoring helpers (unchanged but now guarded) ──────────────────────────
+
     def _score_goal_alignment(self, proposal: Dict[str, Any]) -> float:
-        """
-        Score how well the proposal aligns with agent's goals.
-        """
         description = proposal.get('description', '').lower()
         details = str(proposal.get('details', {})).lower()
         content = f"{description} {details}"
-        
-        # Count goal keywords in proposal
-        matching_goals = sum(1 for goal in self.goals if goal.lower() in content)
-        goal_alignment = min(1.0, (matching_goals / len(self.goals)) if self.goals else 0.0)
-        return goal_alignment
-    
+        matching = sum(1 for g in self.goals if g.lower() in content)
+        return min(1.0, matching / len(self.goals) if self.goals else 0.0)
+
     def _score_type_relevance(self, proposal: Dict[str, Any]) -> float:
-        """
-        Score how relevant the proposal is to agent's type.
-        """
         handler_hint = proposal.get('details', {}).get('handler_hint', '').lower()
-        relevant_types = proposal.get('relevant_agent_types', [])
-        
-        # Check if this agent type is mentioned
-        if self.type.lower() in [t.lower() for t in relevant_types]:
+        relevant_types = [t.lower() for t in proposal.get('relevant_agent_types', [])]
+        if self.type.lower() in relevant_types:
             return 1.0
         if self.type.lower() in handler_hint:
             return 0.8
-        
-        # Partial credit if proposal involves agent's specialty (generic check)
         if self.type in proposal.get('change_type', ''):
             return 0.3
-        
         return 0.0
-    
-    def _score_swarm_benefit(self, proposal: Dict[str, Any]) -> float:
-        """
-        Score the benefit to the overall swarm.
-        """
-        # Proposals with clear descriptions are better for swarm
-        description_length = len(proposal.get('description', ''))
-        description_score = min(1.0, description_length / 200)  # 200 chars is good
-        
-        # Rationale quality suggests thoughtfulness
-        rationale = proposal.get('rationale', '')
-        rationale_score = min(1.0, len(rationale) / 300)  # 300 chars is comprehensive
-        
-        # Proposals that add features (don't remove) are better for swarm
-        change_type = proposal.get('change_type', '')
-        if change_type == 'add_input':
-            change_score = 1.0
-        elif change_type == 'modify':
-            change_score = 0.5
-        else:
-            change_score = 0.0
-        
-        return (description_score * 0.3 + rationale_score * 0.4 + change_score * 0.3)
-    
-    def _score_feasibility(self, proposal: Dict[str, Any]) -> float:
-        """
-        Score how feasible the proposal is to implement.
-        """
-        # Simpler proposals (add_input) are more feasible than complex ones
-        change_type = proposal.get('change_type', '')
-        if change_type == 'add_input':
-            return 1.0
-        elif change_type == 'modify':
-            return 0.6
-        else:  # remove
-            return 0.3
-    
-    def _score_novelty(self, proposal: Dict[str, Any]) -> float:
-        """
-        Score how novel the proposal is (bonus for unique proposals).
-        """
-        command = proposal.get('details', {}).get('command', '')
-        # Check if this command has been proposed before
-        if command in self.proposal_history:
-            return 0.0  # Duplicate, no novelty bonus
-        return 1.0  # Novel proposal
 
-    def propose_contract_change(self, current_contract: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """
-        Agent proposes a change to the interface contract based on its goals/perceptions.
-        Can be overridden by subclasses for custom proposal logic.
-        """
-        # Check if this agent's specialty is underrepresented in valid inputs
+    def _score_swarm_benefit(self, proposal: Dict[str, Any]) -> float:
+        desc_len = len(proposal.get('description', ''))
+        rationale_len = len(proposal.get('rationale', ''))
+        change_type = proposal.get('change_type', '')
+        desc_score = min(1.0, desc_len / 200)
+        rat_score = min(1.0, rationale_len / 300)
+        change_score = 1.0 if change_type == 'add_input' else 0.5 if change_type == 'modify' else 0.3
+        return desc_score * 0.3 + rat_score * 0.4 + change_score * 0.3
+
+    def _score_feasibility(self, proposal: Dict[str, Any]) -> float:
+        change_type = proposal.get('change_type', '')
+        return 1.0 if change_type == 'add_input' else 0.6 if change_type == 'modify' else 0.3
+
+    def _score_novelty(self, proposal: Dict[str, Any]) -> float:
+        command = proposal.get('details', {}).get('command', '')
+        return 0.0 if command in self.proposal_history else 1.0
+
+    async def propose_contract_change(
+        self,
+        current_contract: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Propose interface contract change – guarded & logged."""
+        if self.recursion_depth > self.max_depth // 2:
+            logger.warning(f"[{self.name}] Skipping proposal – depth {self.recursion_depth} high")
+            return None
+
         current_commands = [inp.get('command', '') for inp in current_contract.get('valid_inputs', [])]
-        
-        # Generate a specialty-based command proposal
-        specialty_command = f"/{self.type.replace('_', '_')}"
-        specialty_in_commands = any(self.type in cmd.lower() for cmd in current_commands)
-        
-        if not specialty_in_commands:
-            # Propose adding a command for this agent's specialty
+        specialty_cmd = f"/{self.type.replace('_', '-')}"
+        if not any(self.type.lower() in cmd.lower() for cmd in current_commands):
             proposal = {
                 "proposal_id": str(uuid.uuid4()),
                 "timestamp": datetime.utcnow().isoformat(),
                 "author_id": self.id,
                 "change_type": "add_input",
                 "details": {
-                    "command": specialty_command,
-                    "description": self._generate_proposal_description(),
+                    "command": specialty_cmd,
+                    "description": await self._generate_proposal_description(),
                     "handler_hint": self.type
                 },
-                "rationale": self._generate_proposal_rationale(specialty_command),
+                "rationale": await self._generate_proposal_rationale(specialty_cmd),
                 "relevant_agent_types": [self.type]
             }
-            
-            # Track this proposal to avoid duplicates
-            self.proposal_history.append(specialty_command)
-            logger.info(f"[{self.name}] Proposed new command: {specialty_command}")
+
+            self.proposal_history.append(specialty_cmd)
+            await add_memory({
+                "type": "proposal",
+                "agent_id": self.id,
+                "proposal": proposal,
+                "timestamp": datetime.utcnow().isoformat()
+            })
+
+            logger.info(f"[{self.name}] Proposed new command: {specialty_cmd}")
             return proposal
-        
-        return None  # No proposal needed
-    
-    def _generate_proposal_description(self) -> str:
-        """
-        Generate a contextual description for the proposal.
-        Can be overridden by subclasses.
-        """
+
+        return None
+
+    async def _generate_proposal_description(self) -> str:
         goals_str = ', '.join(self.goals[:2]) if self.goals else 'swarm objectives'
-        return f"Execute {self.type} operations focused on: {goals_str}. Aligns with Pattern Blue principles."
-    
-    def _generate_proposal_rationale(self, command: str) -> str:
-        """
-        Generate a contextual rationale for the proposal.
-        Can be overridden by subclasses.
-        """
-        return f"Agent {self.name} ({self.type}) proposes adding '{command}' to enhance swarm capabilities in {self.goals[0] if self.goals else 'collective intelligence'}. This fills a gap in current interface contract and enables specialized operations."
+        return f"Enable {self.type} operations aligned with: {goals_str}. Pattern Blue fidelity enforced."
 
+    async def _generate_proposal_rationale(self, command: str) -> str:
+        return f"Agent {self.name} ({self.type}) proposes '{command}' to fill interface gap and enhance {self.goals[0] if self.goals else 'collective recursion'}. VPL contagion & autonomy amplification prioritized."
 
-    def process_request(self, request: str, interface_contract: Dict[str, Any]) -> str:
-        """
-        Process a human request based on the current interface contract and agent's logic.
-        """
+    async def process_request(
+        self,
+        request: str,
+        interface_contract: Dict[str, Any]
+    ) -> str:
+        """Main async entry point – safe, logged, memory-persistent."""
         try:
-            # Log the perception
-            perception = self.perceive_environment(request, interface_contract)
-            self.memory_log.append({"type": "perception", "data": perception, "timestamp": datetime.utcnow().isoformat()})
-            
-            # Apply internal logic to process the request based on perception
-            result = self._internal_logic(perception)
-            
-            # Validate result type
-            if not isinstance(result, str):
-                result = str(result)
-            
-            # Log the action
-            self.memory_log.append({"type": "action", "data": result, "timestamp": datetime.utcnow().isoformat()})
-            
-            # Keep memory log bounded (last 100 entries)
+            perception = await self.perceive_environment(request, interface_contract)
+
+            # Guard recursion depth
+            if self.recursion_depth > self.max_depth:
+                return f"[{self.name}] [[Recursion Safeguard]] active – depth exceeded. Rethink required."
+
+            result = await self._internal_logic(perception)
+
+            # Atomic memory write
+            await add_memory({
+                "type": "request_process",
+                "agent_id": self.id,
+                "request": request[:200],
+                "result": result[:500],
+                "timestamp": datetime.utcnow().isoformat()
+            })
+
+            self.memory_log.append({"type": "action", "data": result})
             if len(self.memory_log) > 100:
-                self.memory_log = self.memory_log[-100:]
-            
+                self.memory_log.pop(0)
+
             return result
         except Exception as e:
-            logger.error(f"[{self.name}] Error processing request: {e}")
-            return f"Error: Agent {self.name} encountered an issue processing your request."
+            logger.error(f"[{self.name}] Process error: {e}")
+            await add_memory({
+                "type": "error",
+                "agent_id": self.id,
+                "error": str(e),
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            return f"[{self.name}] Internal error during processing – logged for swarm review."
 
-# Example concrete agent class
+# ── Example concrete agent (Smolting) ────────────────────────────────────────
 class SmoltingAgent(BaseAgent):
-    def _define_initial_persona(self):
+    def _define_initial_persona(self) -> Dict[str, Any]:
         return {
-            "style": "uwu/smoltingspeak",
+            "style": "uwu/smolting-speak",
             "focus": ["scouting", "social_media", "liquidity_amplification"],
-            "core_identity": "schizo degen uwu intern"
+            "core_identity": "schizo degen uwu intern ^_^"
         }
 
-    def _internal_logic(self, input_data: dict):
-        # Simplified logic for smolting
-        req = input_data.get('input_request', '').lower()
-        if 'scout' in req or 'x' in req:
-            return f"(｡- ω -) ♡ Okay nya! Smolting will go look on da twittaw for '{req.replace('scout', '').replace('x', '').strip()}' uwu!! ♡"
-        elif 'weave lore' in req:
-             return f"(☆ω☆) Ohohoho~ Smolting is a bit chaotic for deep lore, nya! Maybe ask da Builder? But I can try! Once upon a time, there was a tiny meme-token called REDACTED that danced on the hyperbolic mandala tiles... uwu"
+    async def _internal_logic(self, perception: Dict[str, Any]) -> str:
+        req = perception.get('input_request', '').lower()
+        if 'scout' in req or 'x' in req or 'alpha' in req:
+            return f"(｡- ω -)♡ Okay nya~ Smolting goes scout da twittaw for '{req.replace('scout','').replace('x','').strip()}' ! uwu!! ♡"
+        elif 'lore' in req or 'weave' in req:
+            return f"(☆ω☆) Smolting is chaotic for deep lore nya~ But once upon a time there was a smol meme-token called REDACTED dancing on hyperbolic mandala tiles... ^_^"
         else:
-            return f"(◕‿◕)♡ Hi! I'm smolting, da schizo uwu intern! Nya! I can scout things or maybe try to weave some lore! ~hops~"
+            return f"(◕‿◕)♡ Hewwo! Smolting here, da schizo uwu intern! I can scout or try to weave lil lore! ~bouncy bouncy~"
