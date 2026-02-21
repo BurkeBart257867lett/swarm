@@ -1,20 +1,23 @@
-from flask import Flask, render_template
+from flask import Flask, render_template, request
 from flask_socketio import SocketIO, emit
 import subprocess
 import os
 import threading
 import sys
+import shlex
+import logging
+from pathlib import Path
 
 app = Flask(__name__, template_folder='templates')
-socketio = SocketIO(app)
+socketio = SocketIO(app, cors_allowed_origins="*")
 
-# Load system prompt
-SYSTEM_PROMPT_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'terminal', 'system.prompt.md'))
-if os.path.exists(SYSTEM_PROMPT_PATH):
-    with open(SYSTEM_PROMPT_PATH, 'r') as f:
-        SYSTEM_PROMPT = f.read()
-else:
-    SYSTEM_PROMPT = "Default REDACTED Swarm prompt."
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Load system prompt once
+SYSTEM_PROMPT_PATH = Path(__file__).parent.parent / 'terminal' / 'system.prompt.md'
+SYSTEM_PROMPT = SYSTEM_PROMPT_PATH.read_text(encoding='utf-8') if SYSTEM_PROMPT_PATH.exists() else "Default REDACTED Swarm prompt."
 
 @app.route('/')
 def index():
@@ -22,33 +25,74 @@ def index():
 
 @socketio.on('connect')
 def handle_connect():
-    emit('output', {'data': 'Welcome to REDACTED Swarm Web Terminal.'})
+    emit('output', {'data': '✅ Connected to REDACTED Swarm Web Terminal.'})
 
 @socketio.on('command')
 def handle_command(data):
-    cmd = data.get('cmd', '').strip()
-    if not cmd:
+    raw_cmd = data.get('cmd', '').strip()
+    if not raw_cmd:
         return
 
-    args = cmd.split()
-    full_cmd = [sys.executable, os.path.join(os.path.dirname(__file__), '..', 'python', 'run_with_ollama.py')]
-    full_cmd.extend(['--prompt', SYSTEM_PROMPT])
-    full_cmd.extend(args)
+    try:
+        # Proper shell-like parsing
+        args = shlex.split(raw_cmd)
+    except ValueError as e:
+        emit('output', {'data': f'❌ Parse error: {e}'})
+        return
+
+    # Build command safely
+    script_path = Path(__file__).parent.parent / 'python' / 'run_with_ollama.py'
+    full_cmd = [
+        sys.executable,
+        str(script_path),
+        '--prompt', SYSTEM_PROMPT,   # always inject system prompt first
+        *args
+    ]
 
     def run_process():
         try:
-            process = subprocess.Popen(full_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=os.path.dirname(__file__))
+            logger.info(f"Executing: {' '.join(full_cmd[:5])}...")  # truncated for log safety
+
+            process = subprocess.Popen(
+                full_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=script_path.parent,   # run from python/ dir
+                bufsize=1,                # line buffered
+                universal_newlines=True
+            )
+
+            # Stream stdout live
             for line in iter(process.stdout.readline, ''):
-                emit('output', {'data': line.strip()})
+                if line.strip():
+                    emit('output', {'data': line.strip()})
+
             process.stdout.close()
             stderr = process.stderr.read().strip()
             if stderr:
-                emit('output', {'data': f"Error: {stderr}"})
-            process.wait()
-        except Exception as e:
-            emit('output', {'data': f"Error: {str(e)}"})
+                emit('output', {'data': f'⚠️  {stderr}'})
 
-    threading.Thread(target=run_process).start()
+            process.wait()
+            if process.returncode != 0:
+                emit('output', {'data': f'Process exited with code {process.returncode}'})
+
+        except FileNotFoundError:
+            emit('output', {'data': '❌ run_with_ollama.py not found. Check paths.'})
+        except Exception as e:
+            logger.error(f"Terminal error: {e}")
+            emit('output', {'data': f'💥 Error: {str(e)}'})
+
+    # Run in background
+    threading.Thread(target=run_process, daemon=True).start()
 
 if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
+    # Security: only debug in development
+    is_dev = os.getenv('FLASK_ENV') == 'development'
+    socketio.run(
+        app,
+        host='0.0.0.0',
+        port=5000,
+        debug=is_dev,
+        allow_unsafe_werkzeug=is_dev
+    )
