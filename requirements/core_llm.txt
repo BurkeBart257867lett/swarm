@@ -1,5 +1,5 @@
 # Core Ollama & Local LLM Integration
-# Used in python/ollama_client.py, python/run_with_ollama.py
+# Used in lib/python/ollama_client.py, lib/python/run_with_ollama.py
 
 -r base.txt                 # Include all base dependencies
 

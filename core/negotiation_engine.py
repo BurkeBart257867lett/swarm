@@ -1,7 +1,7 @@
 import json
 import time
 from typing import List, Dict, Any
-from agents.base_agent import BaseAgent
+from agents.base.base_agent import BaseAgent
 
 class NegotiationEngine:
     """
@@ -105,7 +105,7 @@ initial_contract_example = {
 }
 
 # Write the example to a file for initial setup
-with open("contracts/interface_contract_v1-initial.json", "w") as f:
+with open("blockchain/contracts/interface_contract_v1-initial.json", "w") as f:
     json.dump(initial_contract_example, f, indent=2)
 
-print("Initial contract file 'contracts/interface_contract_v1-initial.json' created.")
+print("Initial contract file 'blockchain/contracts/interface_contract_v1-initial.json' created.")

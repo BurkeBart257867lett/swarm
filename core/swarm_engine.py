@@ -11,11 +11,11 @@ from datetime import datetime
 
 # Core swarm layers
 from core.pattern_blue_state import PatternBlueState
-from kernel.hyperbolic_scheduler import HyperbolicScheduler
-from agents.agent_executor import AgentExecutor
+from lib.kernel.hyperbolic_scheduler import HyperbolicScheduler
+from agents.base.agent_executor import AgentExecutor
 from parallel_branch_engine import ParallelBranchEngine
 from plugins.mem0_memory.mem0_wrapper import add_memory
-from terminal_services.smolting_personality import SmoltingPersonality  # from smolting-telegram-bot
+from services.telegram.smolting_personality import SmoltingPersonality
 
 # Telegram bridge
 from telegram.ext import Application, CommandHandler, MessageHandler, filters

@@ -3,7 +3,7 @@
 -r base.txt                 # Include all base dependencies
 
 # Testing
-pytest>=7.4.0               # Testing framework
+pytest>=8.3.3               # Testing framework (updated to match python/requirements.txt)
 pytest-asyncio>=0.21.0      # Async test support
 pytest-cov>=4.1.0           # Coverage reporting
 

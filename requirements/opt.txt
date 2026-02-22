@@ -13,8 +13,9 @@ mem0ai>=0.0.1               # Mem0 memory integration (plugins/mem0-memory/)
 
 # Solana / Blockchain
 solders>=0.10.0             # Modern Solana Python SDK
-solana>=0.30.0              # Core Solana client
+solana>=0.34.0              # Core Solana client (updated to match python/requirements.txt)
 anchorpy>=0.19.0            # Anchor program interaction
+wormhole-sdk>=0.1.0         # Wormhole bridging for cross-chain value flows
 
 # AI/ML Providers
 anthropic>=0.28.0           # Anthropic Claude API

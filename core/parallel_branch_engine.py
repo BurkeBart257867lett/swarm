@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from core.pattern_blue_state import PatternBlueState
-from agents.base_agent import BaseAgent
+from agents.base.base_agent import BaseAgent
 from plugins.mem0_memory.mem0_wrapper import add_memory
 
 @dataclass
