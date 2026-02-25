@@ -1,53 +1,86 @@
-# Phantom MCP Wallet Ops
+---
+name: phantom-secure-execution
+category: execution
+version: 1.1
+last_updated: 2026-02-26
+dependencies: ["bankr-treasury-management", "near-intents"]
+tools: ["phantom-mcp"]
+---
 
-Central hub for all Phantom MCP server interactions in the REDACTED AI Swarm.  
-Enables autonomous wallet operations (address lookup, transaction signing, token transfers, etc.) without human intervention.
+# Phantom MCP Secure Execution
 
-Last reviewed: 2026-02-18  
-Status: [[ACTIVE]] – production-ready with testnet-first guardrails  
-Related hubs: [[Meta-Strategy Hub]], [[Vault Marker Integrity]], [[Testnet First Rule]], [[On-Chain Liquidity Play]]
+## Overview
+Phantom’s Model Context Protocol (MCP) server provides secure, natural-language wallet operations for embedded wallets across Solana, Ethereum/EVM, Bitcoin, and Sui. It enables agents to get addresses, sign transactions/messages, transfer tokens (Solana), and perform swaps (Solana) using authenticated sessions (SSO via Google/Apple).
 
-## Core Capabilities
+All operations are signed locally by the embedded wallet; the server acts as a secure bridge. Preview status — use test/low-value accounts.
 
-Phantom MCP server provides five primary tools via JSON-RPC over HTTP:
+## Capabilities (exposed MCP methods)
 
-- [[mcp_get_wallet_addresses]]  
-  Retrieve wallet addresses across supported chains (Solana, Ethereum, Bitcoin, Sui)
+- **get_wallet_addresses**  
+  Get blockchain addresses for the authenticated embedded wallet (Solana, Ethereum, Bitcoin Segwit, Sui).  
+  - Required: none  
+  - Optional: `derivationIndex` (number, default 0)  
+  - Returns: list of addresses by chain type
 
-- [[mcp_sign_transaction]]  
-  Sign raw transaction (Solana base64url or EVM hex)
+- **sign_transaction**  
+  Sign transactions across supported chains (custom or built transactions).  
+  - Required: `transaction` (string: base64url for Solana, RLP-hex for EVM), `networkId` (e.g. `solana:mainnet`, `eip155:1`)  
+  - Optional: `walletId`, `derivationIndex` (default 0), `account`  
+  - Returns: `signedTransaction` (base64url)  
+  - Used internally by `transfer_tokens` / `buy_token` when executing
 
-- [[mcp_transfer_tokens]]  
-  Build + sign + submit native SOL or SPL token transfer on Solana
+- **transfer_tokens**  
+  Transfer SOL or SPL tokens on Solana (builds, signs, submits).  
+  - Required: `networkId` (e.g. `solana:mainnet`), `to` (string), `amount` (string)  
+  - Optional: `amountUnit` ("ui" | "base", default "ui"), `tokenMint`, `decimals`, `derivationIndex` (0), `rpcUrl`, `createAssociatedTokenAccount` (true)  
+  - Returns: signature, raw signed tx, from/to details  
+  - Solana only
 
-- [[mcp_buy_token]]  
-  Execute token purchase (swap) on Solana via Phantom embedded wallet
+- **buy_token**  
+  Fetch Solana swap quote via Phantom quotes API; optionally sign/send first tx.  
+  - Required: `amount` (string)  
+  - Optional: `walletId`, `networkId` (default solana:mainnet), `buyTokenMint`, `buyTokenIsNative`, `sellTokenMint`, `sellTokenIsNative`, `amountUnit` ("base"), `slippageTolerance`, `execute` (false), `derivationIndex` (0)  
+  - Returns: quote data + optional signature if `execute: true`  
+  - Solana only
 
-- [[mcp_sign_message]]  
-  Sign arbitrary message (personal_sign style)
+- **sign_message**  
+  Sign UTF-8 messages with automatic chain-specific routing.  
+  - Required: `message` (string), `networkId`  
+  - Optional: `walletId`, `derivationIndex` (0)  
+  - Returns: `signature` (base64url)  
+  - Supports Solana personal_sign, EIP-191 (Ethereum), etc.
 
-Supported networks (as of Feb 2026):  
-- solana:mainnet  
-- solana:devnet  
-- eip155:1 (Ethereum mainnet)  
-- bitcoin:mainnet  
-- sui:mainnet
+## Integration in character.json
+```json
+"skills": ["phantom-secure-execution"],
+"tools": ["phantom-mcp"],
+"system": "For all on-chain signing, address lookup, Solana transfers, swaps, or message signing: use phantom-mcp methods (get_wallet_addresses, sign_transaction, transfer_tokens, buy_token, sign_message). Prefer transfer_tokens/buy_token for Solana-native actions; fall back to sign_transaction for custom needs. Always specify networkId correctly."
+```
 
-## Integration Points in Swarm
+## Usage Examples (agent prompts that trigger the skill)
+- "Get all my wallet addresses via Phantom MCP"
+- "Sign this Solana transaction: [base64 transaction string]"
+- "Transfer 0.3 SOL to address ABC... on mainnet"
+- "Buy 5000 $PSYOP with 0.5 SOL using best quote (execute: true)"
+- "Sign the message 'I see all 👁️' on Ethereum"
+- "Check addresses then transfer 100 USDC SPL to XYZ... on Solana"
 
-All calls go through the `phantom-mcp` Railway service.
+## Setup (one-time)
+```bash
+npx -y @phantom/mcp-server
+# First run opens browser for SSO (Google/Apple) → creates embedded wallet
+# Set PHANTOM_APP_ID from phantom.com/portal
+# Session stored in ~/.phantom-mcp/session.json (chmod 600)
+```
 
-Internal endpoint (private networking):  
-`http://phantom-mcp.railway.internal:8080`
+## Security & Best Practices
+- Use dedicated low-value/test Phantom account for agents
+- Session file permissions 600; never expose
+- Start with tiny amounts; MCP is preview
+- Combine with bankr-treasury-management (funding) + near-intents (cross-chain settlement)
+- For complex flows: prefer `sign_transaction` over convenience methods for simulation/control
 
-Env var:  
-`MCP_BASE_URL=http://phantom-mcp.railway.internal:8080`
-
-Agent usage pattern (in `.character.json` tools + runtime handler):
-
-```text
-When wallet operation needed:
-1. Validate intent & amount (low-value only)
-2. Call appropriate mcp_ tool
-3. Log result + tx hash to [[ManifoldMemory Write Protocol]]
-4. If success → post CT confirmation (optional)
+## Related Skills
+- bankr-treasury-management (funding source before signing/transfers)
+- near-intents (cross-chain bridging after Solana/EVM actions)
+- veil-privacy (shielded Base → Phantom signing)
