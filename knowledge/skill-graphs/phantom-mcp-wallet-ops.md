@@ -61,7 +61,7 @@ All operations are signed locally by the embedded wallet; the server acts as a s
 - "Get all my wallet addresses via Phantom MCP"
 - "Sign this Solana transaction: [base64 transaction string]"
 - "Transfer 0.3 SOL to address ABC... on mainnet"
-- "Buy 5000 $PSYOP with 0.5 SOL using best quote (execute: true)"
+- "Buy 5000 $REDACTED with 0.5 SOL using best quote (execute: true)"
 - "Sign the message 'I see all 👁️' on Ethereum"
 - "Check addresses then transfer 100 USDC SPL to XYZ... on Solana"
 
