@@ -1,0 +1,61 @@
+version: '3.9'
+
+services:
+
+  swarm-orchestrator:
+    build: .
+    container_name: redacted-swarm-orchestrator
+    command: bun run --watch --cwd runtime index.ts   # dev mode with hot-reload
+    volumes:
+      - .:/app
+      - ./runtime/dist:/app/runtime/dist   # if you build TS
+    environment:
+      - NODE_ENV=development
+      - DEFAULT_MODEL=qwen2.5               # or claude, grok, etc. via env
+      - OLLAMA_HOST=http://ollama:11434
+      - POSTGRES_URL=postgres://user:pass@postgres:5432/swarm
+    depends_on:
+      - postgres
+      - ollama
+    ports:
+      - "3000:3000"   # expose if you add a simple HTTP dashboard later
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    volumes:
+      - ollama:/root/.ollama
+    ports:
+      - "11434:11434"
+    command: serve
+    restart: unless-stopped
+
+  ollama-pull-model:   # one-shot to pull model on startup
+    image: ollama/ollama:latest
+    depends_on:
+      - ollama
+    command: pull qwen2.5   # or llama3.1, etc. — match your agents' needs
+    restart: "no"
+
+  postgres:
+    image: ankane/pgvector:latest   # pgvector for embeddings / RAG — common in elizaOS
+    container_name: swarm-postgres
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: swarm
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"   # avoid conflict with local postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  ollama:
+  pgdata:
