@@ -27,8 +27,14 @@ The swarm incorporates economic settlement mechanisms via x402 micropayments, in
 
 ## Agents • Nodes • Spaces
 
-### Agents (user-facing / vibe engines)
+### Agents
+Defined in `agents/`:
 
+- `agents/characters/` — Primary user/vibe agents (e.g. `RedactedBankrBot.character.json`, others)
+- `agents/nodes/` — Specialized execution/coordination agents (e.g. `PsyopAnimeNode.character.json`, legacy OpenClawNode-style moved here)
+- `agents/base/` — Shared/base configs or templates
+
+### Characters (user-facing / vibe engines)
 - **RedactedIntern** — CT scout, market analyst, liquidity/gov facilitator  
   [agents/RedactedIntern.character.json](agents/RedactedIntern.character.json)
 
@@ -111,29 +117,31 @@ See [docker-compose.yml](docker-compose.yml) & [Dockerfile](Dockerfile)
 
 Detailed steps in [CONTRIBUTING.md#deployment](CONTRIBUTING.md)
 
-## Directory Structure (2026 snapshot)
+## Directory Structure
 
 ```
 swarm/
-├── agents/              # .character.json user agents
-├── nodes/               # Specialized execution nodes
-├── spaces/              # Persistent recursive environments
-├── runtime/             # TS/elizaOS orchestrator + loader
-├── plugins/             # near-intents, mem0-memory, phantom-mcp, veil-zk...
-├── content/             # Integration guides, deep docs
-├── core/                # Negotiation, reflection logic
-├── config/              # Railway/Anchor/deploy configs
-├── requirements/        # Modular pip requirements
-├── python/              # Ollama runner, tools
-├── terminal/            # Interactive terminals (cloud, upgrade)
-├── services/            # smolting-telegram-bot, etc.
-├── x402.redacted.ai/    # Micropayment gateway
-├── mcp-server/          # Phantom MCP signing server
-├── blockchain/          # Solana programs (Anchor)
-├── docker-compose.yml   # Multi-agent setup
-├── Dockerfile
+├── agents/                    # .character.json agents (nested: base/, characters/, nodes/)
+├── blockchain/                # Blockchain integrations
+├── config/                    # Deployment configs
+├── content/                   # Integration docs & guides
+├── core/                      # Negotiation/reflection logic
+├── knowledge/                 # Skill graphs & docs (skill-graphs/ subdir)
+├── lib/                       # Shared utilities
+├── plugins/                   # Integrations (near-intents/, mem0-memory/...)
+├── requirements/              # Modular pip deps
+├── runtime/                   # TS/elizaOS orchestrator
+├── services/                  # Backend/microservices
+├── spaces/                    # .space.json environments
+├── terminal/                  # CLI/terminal utilities
 ├── .env.example
-└── CONTRIBUTING.md
+├── CONTRIBUTING.md
+├── Dockerfile
+├── LICENSE
+├── ORGANIZATION.md
+├── README.md
+├── docker-compose.yml
+└── wallets.enc                # Encrypted wallet config (example)
 ```
 
 ## Configuration (.env)
