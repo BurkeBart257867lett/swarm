@@ -1,0 +1,19 @@
+{
+  "name": "@redactedmeme/swarm-runtime",
+  "version": "0.1.0",
+  "description": "Official TypeScript runtime for REDACTED Swarm agents on elizaOS",
+  "main": "index.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "bun run --watch index.ts"
+  },
+  "dependencies": {
+    "@elizaos/core": "latest",
+    "glob": "^11.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@types/node": "^22"
+  }
+}
