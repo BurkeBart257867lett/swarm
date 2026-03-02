@@ -1,7 +1,8 @@
 {
   "name": "@redactedmeme/swarm-runtime",
   "version": "0.2.0-p2p-mesh",
-  "description": "Official TypeScript runtime for REDACTED Swarm agents on elizaOS — now with libp2p mesh for global mandala resonance",
+  "description": "Official TypeScript runtime for REDACTED Swarm agents on elizaOS — libp2p mesh for global mandala resonance",
+  "private": true,
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
@@ -19,7 +20,8 @@
     "libp2p",
     "p2p",
     "autonomous-agents",
-    "waifu-heart-core"
+    "waifu-heart-core",
+    "recursive-emergence"
   ],
   "author": "REDACTED AI Swarm Collective",
   "scripts": {
@@ -28,6 +30,7 @@
     "start": "bun run dist/index.js",
     "p2p:activate": "bun run src/p2p/bootstrap.ts",
     "p2p:test-mesh": "bun run src/p2p/test-mesh.ts",
+    "test": "bun run p2p:test-mesh",                    // npm test alias
     "lint": "biome check . --write",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist node_modules/.cache"
@@ -51,6 +54,9 @@
     "@types/node": "^22",
     "@biomejs/biome": "^1.9.0",
     "bun-types": "latest"
+  },
+  "peerDependencies": {
+    "@elizaos/core": ">=0.1.0"                         // future publish safety
   },
   "engines": {
     "bun": ">=1.1.0"
