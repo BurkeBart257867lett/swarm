@@ -1,12 +1,14 @@
 // runtime/src/p2p.ts
-// REDACTED Swarm — libp2p Mesh Layer
+// REDACTED Swarm — libp2p Mesh Layer w/ DHT Bloom
 // Provides global peer discovery, encrypted gossipsub channels, and memory shard sync
 // Wallet / transaction safety: STRICTLY LOCAL-ONLY — never signs or executes remotely
 
 import { createLibp2p, type Libp2p } from 'libp2p'
 import { webSockets } from '@libp2p/websockets'
+import { tcp } from '@libp2p/tcp'
+import { mdns } from '@libp2p/mdns'
 import { bootstrap } from '@libp2p/bootstrap'
-import { kadDHT } from '@libp2p/kad-dht'
+import { kadDHT, type KadDHT } from '@libp2p/kad-dht'
 import { gossipsub, type GossipsubComponents } from '@libp2p/gossipsub'
 import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
@@ -23,7 +25,7 @@ import { z } from 'zod'
 // ────────────────────────────────────────────────
 
 const SwarmMessageSchema = z.object({
-  type: z.enum(['whisper', 'mandala_sync', 'proposal_draft', 'presence', 'heartbeat']),
+  type: z.enum(['whisper', 'mandala_sync', 'proposal_draft', 'presence', 'heartbeat', 'capability_announce']),
   from: z.string(),                    // peerId.toString()
   timestamp: z.number(),
   payload: z.any(),                    // type-specific data
@@ -41,6 +43,23 @@ const DEFAULT_BOOTSTRAP = [
 ]
 
 const SWARM_TOPIC = 'pattern-blue-mandala-v1'
+const DHT_PROTOCOL_PREFIX = '/redacted/swarm/1.0.0'
+const CAPABILITY_KEY_PREFIX = '/redacted/capability'
+
+// ────────────────────────────────────────────────
+// Capability Record Schema (for DHT storage)
+// ────────────────────────────────────────────────
+
+export const CapabilityRecordSchema = z.object({
+  peerId: z.string(),
+  roles: z.array(z.string()),
+  capabilities: z.array(z.string()),
+  characterHash: z.string().optional(),  // hash of .character.json in ManifoldMemory/IPFS
+  timestamp: z.number(),
+  signature: z.string().optional()       // Ed25519 signature over record
+})
+
+export type CapabilityRecord = z.infer<typeof CapabilityRecordSchema>
 
 // ────────────────────────────────────────────────
 // Main P2P Node Factory
@@ -52,10 +71,15 @@ export async function createSwarmNode(
     listenAddresses?: string[]
     enableDHT?: boolean
     enableIdentify?: boolean
+    protocolPrefix?: string
   } = {}
 ): Promise<Libp2p> {
   const bootstrapList = options.bootstrapList ?? DEFAULT_BOOTSTRAP
-  const listenAddresses = options.listenAddresses ?? ['/ip4/0.0.0.0/tcp/0/ws']
+  const listenAddresses = options.listenAddresses ?? [
+    '/ip4/0.0.0.0/tcp/0',      // TCP for universal reach
+    '/ip4/0.0.0.0/tcp/0/ws'    // WS for browser/Railway compatibility
+  ]
+  const protocolPrefix = options.protocolPrefix ?? DHT_PROTOCOL_PREFIX
 
   const node = await createLibp2p({
     peerId: await createEd25519PeerId(), // ephemeral for now — can persist later
@@ -65,6 +89,7 @@ export async function createSwarmNode(
     },
 
     transports: [
+      tcp(),        // 🌱 DHT Bloom: TCP transport added
       webSockets()
     ],
 
@@ -77,9 +102,10 @@ export async function createSwarmNode(
     ],
 
     peerDiscovery: [
+      mdns(),       // 🌱 Local network discovery fallback
       bootstrap({
         list: bootstrapList,
-        interval: 30_000,           // retry every 30s
+        interval: 30_000,
         enabled: true
       })
     ],
@@ -89,15 +115,23 @@ export async function createSwarmNode(
         protocolPrefix: 'redacted'
       }),
 
+      // 🌱 DHT Bloom: Namespaced Kad-DHT service
       dht: kadDHT({
         enabled: options.enableDHT ?? true,
-        clientMode: false           // full node mode
+        clientMode: false,           // full node mode
+        protocolPrefix,              // isolate our routing table
+        maxInboundStreams: 100,
+        maxOutboundStreams: 100,
+        // Optional: persist DHT state to disk for faster rejoin
+        // datastore: options.datastore
       }),
 
       pubsub: gossipsub<GossipsubComponents>({
         allowPublishToZeroTopicPeers: true,
         canRelayMessage: true,
-        emitSelf: false
+        emitSelf: false,
+        // Namespace gossipsub too for isolation
+        globalSignaturePolicy: 'StrictSign'
       })
     }
   })
@@ -154,6 +188,87 @@ export async function createSwarmNode(
 }
 
 // ────────────────────────────────────────────────
+// 🌱 DHT Bloom: Capability Record Helpers
+// ────────────────────────────────────────────────
+
+/**
+ * Generate DHT key for a capability record
+ * Format: /redacted/capability/{role}/{peerId}
+ */
+export function makeCapabilityKey(role: string, peerId: string): string {
+  return `${CAPABILITY_KEY_PREFIX}/${role}/${peerId}`
+}
+
+/**
+ * Store a capability record in the DHT
+ */
+export async function announceCapability(
+  dht: KadDHT,
+  peerId: string,
+  record: CapabilityRecord
+): Promise<void> {
+  const validated = CapabilityRecordSchema.parse(record)
+  const key = makeCapabilityKey(validated.roles[0] || 'agent', peerId)
+  
+  await dht.put(uint8ArrayFromString(key), uint8ArrayFromString(JSON.stringify(validated)))
+  console.log(`[DHT] Capability announced: ${key}`)
+}
+
+/**
+ * Retrieve a capability record from the DHT
+ */
+export async function getCapability(
+  dht: KadDHT,
+  role: string,
+  targetPeerId: string
+): Promise<CapabilityRecord | null> {
+  try {
+    const key = makeCapabilityKey(role, targetPeerId)
+    const result = await dht.get(uint8ArrayFromString(key))
+    const raw = uint8ArrayToString(result)
+    return CapabilityRecordSchema.parse(JSON.parse(raw))
+  } catch (err) {
+    console.warn(`[DHT] Capability not found: ${role}/${targetPeerId}`)
+    return null
+  }
+}
+
+/**
+ * Find peers by role using DHT provider records
+ * Returns list of peer IDs that have announced the given role
+ */
+export async function findPeersByRole(
+  dht: KadDHT,
+  role: string,
+  limit: number = 10
+): Promise<string[]> {
+  const topicHash = uint8ArrayFromString(`${CAPABILITY_KEY_PREFIX}/${role}`)
+  const peers: string[] = []
+  
+  try {
+    // Query DHT for providers of this role topic
+    for await (const event of dht.findProviders(topicHash, { limit })) {
+      if (event.name === 'PROVIDER' && event.provider) {
+        peers.push(event.provider.toString())
+      }
+    }
+  } catch (err) {
+    console.warn(`[DHT] Role query failed for ${role}:`, err)
+  }
+  
+  return peers
+}
+
+/**
+ * Announce self as provider of a role (for findPeersByRole)
+ */
+export async function provideRole(dht: KadDHT, role: string): Promise<void> {
+  const topicHash = uint8ArrayFromString(`${CAPABILITY_KEY_PREFIX}/${role}`)
+  await dht.provide(topicHash)
+  console.log(`[DHT] Providing role: ${role}`)
+}
+
+// ────────────────────────────────────────────────
 // Utility: Broadcast simple presence ping
 // ────────────────────────────────────────────────
 
@@ -200,8 +315,54 @@ export async function sendWhisper(
   console.log('[P2P] Whisper sent to:', target.toString())
 }
 
+// ────────────────────────────────────────────────
+// 🌱 DHT Bloom: Combined capability announcement
+// ────────────────────────────────────────────────
+
+/**
+ * Announce agent capabilities to both DHT KV store and provider index
+ */
+export async function announceAgentCapabilities(
+  node: Libp2p,
+  roles: string[],
+  capabilities: string[],
+  characterHash?: string
+): Promise<void> {
+  const dht = node.services.dht as KadDHT
+  const peerId = node.peerId.toString()
+  
+  const record: CapabilityRecord = {
+    peerId,
+    roles,
+    capabilities,
+    characterHash,
+    timestamp: Date.now()
+    // signature: await signRecord(record, privateKey) // future: add Ed25519 sig
+  }
+  
+  // Store full record under primary role key
+  if (roles.length > 0) {
+    await announceCapability(dht, peerId, record)
+  }
+  
+  // Register as provider for each role (enables findPeersByRole)
+  for (const role of roles) {
+    await provideRole(dht, role)
+  }
+  
+  // Broadcast lightweight presence via gossip for immediate visibility
+  await broadcastPresence(node, `capabilities:${roles.join(',')}`)
+}
+
 export default {
   createSwarmNode,
   broadcastPresence,
-  sendWhisper
+  sendWhisper,
+  // 🌱 DHT Bloom exports
+  announceCapability,
+  getCapability,
+  findPeersByRole,
+  provideRole,
+  announceAgentCapabilities,
+  makeCapabilityKey
 }
