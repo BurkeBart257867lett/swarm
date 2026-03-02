@@ -30,7 +30,7 @@
     "start": "bun run dist/index.js",
     "p2p:activate": "bun run src/p2p/bootstrap.ts",
     "p2p:test-mesh": "bun run src/p2p/test-mesh.ts",
-    "test": "bun run p2p:test-mesh",                    // npm test alias
+    "test": "bun run p2p:test-mesh",
     "lint": "biome check . --write",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist node_modules/.cache"
@@ -39,6 +39,8 @@
     "@elizaos/core": "latest",
     "@libp2p/core": "^2.0.0",
     "@libp2p/websockets": "^2.0.0",
+    "@libp2p/tcp": "^2.0.0",
+    "@libp2p/mdns": "^2.0.0",
     "@libp2p/bootstrap": "^2.0.0",
     "@libp2p/kad-dht": "^2.0.0",
     "@libp2p/gossipsub": "^2.0.0",
@@ -47,7 +49,8 @@
     "@chainsafe/libp2p-yamux": "^5.0.0",
     "multiformats": "^13.0.0",
     "glob": "^11.0.0",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "uint8arrays": "^5.0.0"
   },
   "devDependencies": {
     "typescript": "^5.7.0",
@@ -56,7 +59,7 @@
     "bun-types": "latest"
   },
   "peerDependencies": {
-    "@elizaos/core": ">=0.1.0"                         // future publish safety
+    "@elizaos/core": ">=0.1.0"
   },
   "engines": {
     "bun": ">=1.1.0"
