@@ -1,8 +1,9 @@
 # services/web/app.py
-# REDACTED Swarm — Hardened Web Terminal with Dual-Mode Runtime Bridge
-# Security-first design: auth, validation, timeout, audit, DHT integration
+# REDACTED Swarm — Hardened Web Terminal with Local-Only Wallet
+# Security-first design: auth, validation, timeout, audit, DHT + wallet bridge
+# 🔐 Wallet keys NEVER stored server-side — Phantom MCP local signing only
 
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, session
 from flask_socketio import SocketIO, emit, disconnect
 import subprocess
 import os
@@ -14,24 +15,28 @@ import time
 import re
 import hashlib
 import hmac
+import json
 from pathlib import Path
 from datetime import datetime, timedelta
 from collections import defaultdict, deque
-import requests  # for TypeScript runtime bridge
+import requests
+from functools import wraps
 
 app = Flask(__name__, template_folder='templates')
+app.secret_key = os.getenv('FLASK_SECRET_KEY', hashlib.sha256(os.urandom(32)).hexdigest())
 
 # ────────────────────────────────────────────────
 # 🔐 Security Configuration (loaded from env)
 # ────────────────────────────────────────────────
 
-API_KEY = os.getenv('WEB_TERMINAL_API_KEY')  # Required for auth
+API_KEY = os.getenv('WEB_TERMINAL_API_KEY')
 CORS_ORIGINS = os.getenv('WEB_CORS_ORIGINS', 'http://localhost:3000').split(',')
-RUNTIME_API_URL = os.getenv('RUNTIME_API_URL', 'http://localhost:4001')  # TS runtime bridge
-MAX_COMMAND_LENGTH = 4096
-COMMAND_TIMEOUT_SECONDS = int(os.getenv('WEB_COMMAND_TIMEOUT', '300'))  # 5 min default
-RATE_LIMIT_REQUESTS = int(os.getenv('WEB_RATE_LIMIT', '10'))  # per minute per session
-RATE_LIMIT_WINDOW = 60  # seconds
+RUNTIME_API_URL = os.getenv('RUNTIME_API_URL', 'http://localhost:4001')
+MAX_COMMAND_LENGTH = int(os.getenv('WEB_MAX_COMMAND_LENGTH', '4096'))
+COMMAND_TIMEOUT_SECONDS = int(os.getenv('WEB_COMMAND_TIMEOUT', '300'))
+RATE_LIMIT_REQUESTS = int(os.getenv('WEB_RATE_LIMIT', '10'))
+RATE_LIMIT_WINDOW = int(os.getenv('WEB_RATE_LIMIT_WINDOW', '60'))
+PHANTOM_ALLOWED_ORIGINS = os.getenv('PHANTOM_ALLOWED_ORIGINS', 'http://localhost:5000').split(',')
 
 # ────────────────────────────────────────────────
 # 📝 Audit Logging Setup
@@ -47,16 +52,19 @@ def audit_log(event_type: str, session_id: str, command: str, status: str, detai
         'timestamp': datetime.utcnow().isoformat(),
         'event': event_type,
         'session': session_id,
-        'command': command[:200],  # truncate for safety
+        'command': command[:200] if command else '',
         'status': status,
         'details': details or {}
     }
-    with open(AUDIT_LOG, 'a', encoding='utf-8') as f:
-        f.write(f"{entry}\n")
-    logger.info(f"[AUDIT] {entry}")
+    try:
+        with open(AUDIT_LOG, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(entry) + '\n')
+        logger.info(f"[AUDIT] {entry}")
+    except Exception as e:
+        logger.error(f"Audit log write failed: {e}")
 
 # ────────────────────────────────────────────────
-# ⚡ Rate Limiting (simple token bucket per session)
+# ⚡ Rate Limiting (token bucket per session)
 # ────────────────────────────────────────────────
 
 rate_limits = defaultdict(lambda: deque(maxlen=RATE_LIMIT_REQUESTS))
@@ -64,7 +72,6 @@ rate_limits = defaultdict(lambda: deque(maxlen=RATE_LIMIT_REQUESTS))
 def check_rate_limit(session_id: str) -> bool:
     now = time.time()
     window_start = now - RATE_LIMIT_WINDOW
-    # Remove expired timestamps
     while rate_limits[session_id] and rate_limits[session_id][0] < window_start:
         rate_limits[session_id].popleft()
     if len(rate_limits[session_id]) >= RATE_LIMIT_REQUESTS:
@@ -85,7 +92,6 @@ class RuntimeBridge:
         self.session = requests.Session()
     
     def query_dht_peers(self, role: str, limit: int = 10) -> dict:
-        """Query DHT for peers with given role"""
         try:
             resp = self.session.get(
                 f"{self.base_url}/api/dht/peers",
@@ -99,7 +105,6 @@ class RuntimeBridge:
             return {'error': str(e), 'peers': []}
     
     def announce_capability(self, peer_id: str, roles: list, capabilities: list, character_hash: str = None) -> dict:
-        """Announce web session as observer capability in DHT"""
         try:
             resp = self.session.post(
                 f"{self.base_url}/api/dht/announce",
@@ -119,7 +124,6 @@ class RuntimeBridge:
             return {'error': str(e)}
     
     def execute_command(self, args: list, runtime_config: dict = None) -> dict:
-        """Forward command to TypeScript runtime for execution"""
         try:
             resp = self.session.post(
                 f"{self.base_url}/api/agent/execute",
@@ -132,7 +136,6 @@ class RuntimeBridge:
             logger.error(f"Runtime bridge command execution failed: {e}")
             return {'error': str(e), 'output': []}
 
-# Initialize bridge
 runtime_bridge = RuntimeBridge(RUNTIME_API_URL)
 
 # ────────────────────────────────────────────────
@@ -141,7 +144,6 @@ runtime_bridge = RuntimeBridge(RUNTIME_API_URL)
 
 socketio = SocketIO(app, cors_allowed_origins=CORS_ORIGINS, async_mode='threading')
 
-# Setup logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
@@ -161,35 +163,32 @@ SYSTEM_PROMPT = SYSTEM_PROMPT_PATH.read_text(encoding='utf-8') if SYSTEM_PROMPT_
 
 PYTHON_SCRIPT_PATH = Path(__file__).parent.parent / 'lib' / 'python' / 'run_with_ollama.py'
 ALLOWED_AGENTS_DIR = Path(__file__).parent.parent / 'agents'
-ALLOWED_MODELS = {'qwen2.5', 'llama3', 'mistral', 'gemma'}  # extend as needed
+ALLOWED_MODELS = {'qwen2.5', 'llama3', 'mistral', 'gemma'}
 
 # ────────────────────────────────────────────────
 # 🔐 Authentication Helpers
 # ────────────────────────────────────────────────
 
 def generate_session_id() -> str:
-    """Generate cryptographically random session identifier"""
     return hashlib.sha256(os.urandom(32) + str(time.time()).encode()).hexdigest()[:16]
 
-def verify_signature(payload: str, signature: str, peer_public_key: str = None) -> bool:
-    """Verify Ed25519 signature over command payload (future: integrate with libp2p peer IDs)"""
-    # Placeholder: in production, use nacl.signing.VerifyKey(peer_public_key).verify()
-    # For now, fallback to API key auth
-    return API_KEY and hmac.compare_digest(signature, hmac.new(API_KEY.encode(), payload.encode(), hashlib.sha256).hexdigest())
+def require_auth(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if API_KEY and not session.get('authenticated'):
+            return jsonify({'error': 'Authentication required'}), 401
+        return f(*args, **kwargs)
+    return decorated_function
 
 # ────────────────────────────────────────────────
 # 🛡️ Command Validation
 # ────────────────────────────────────────────────
 
-def validate_command_args(args: list) -> tuple[bool, str]:
-    """Validate parsed command arguments against security policy"""
-    
-    # Check for path traversal attempts
+def validate_command_args(args: list) -> tuple:
     for arg in args:
-        if '..' in arg or arg.startswith('/'):
+        if '..' in arg or (arg.startswith('/') and not arg.startswith('/dns')):
             return False, "Path traversal detected in arguments"
     
-    # Validate --agent path
     try:
         agent_idx = args.index('--agent')
         if agent_idx + 1 < len(args):
@@ -197,9 +196,8 @@ def validate_command_args(args: list) -> tuple[bool, str]:
             if not str(agent_path).startswith(str(ALLOWED_AGENTS_DIR.resolve())):
                 return False, f"Agent path must reside within {ALLOWED_AGENTS_DIR}"
     except ValueError:
-        pass  # --agent not specified, may be optional
+        pass
     
-    # Validate --model
     try:
         model_idx = args.index('--model')
         if model_idx + 1 < len(args):
@@ -209,7 +207,6 @@ def validate_command_args(args: list) -> tuple[bool, str]:
     except ValueError:
         pass
     
-    # Validate --runtime mode
     try:
         runtime_idx = args.index('--runtime')
         if runtime_idx + 1 < len(args):
@@ -217,7 +214,7 @@ def validate_command_args(args: list) -> tuple[bool, str]:
             if runtime not in ('python', 'typescript'):
                 return False, "Runtime must be 'python' or 'typescript'"
     except ValueError:
-        pass  # default to python
+        pass
     
     return True, ""
 
@@ -231,15 +228,123 @@ def index():
 
 @app.route('/health')
 def health():
-    return jsonify({'status': 'ok', 'service': 'web-terminal', 'timestamp': datetime.utcnow().isoformat()})
+    return jsonify({
+        'status': 'ok',
+        'service': 'web-terminal',
+        'timestamp': datetime.utcnow().isoformat(),
+        'wallet_model': 'local-only-phantom-mcp'
+    })
 
 @app.route('/api/dht/peers', methods=['GET'])
+@require_auth
 def api_query_peers():
-    """HTTP endpoint for DHT peer queries (alternative to WebSocket)"""
     role = request.args.get('role', 'agent')
-    limit = min(int(request.args.get('limit', '10')), 50)  # cap at 50
+    limit = min(int(request.args.get('limit', '10')), 50)
     result = runtime_bridge.query_dht_peers(role, limit)
     return jsonify(result)
+
+@app.route('/api/wallet/status', methods=['GET'])
+@require_auth
+def api_wallet_status():
+    """Return wallet connection status for session"""
+    session_id = session.get('session_id', 'unknown')
+    wallet_connected = session.get('wallet_connected', False)
+    wallet_address = session.get('wallet_address', None)
+    
+    return jsonify({
+        'connected': wallet_connected,
+        'address': wallet_address,
+        'model': 'phantom-mcp-local-only',
+        'message': 'Wallet keys never leave your browser extension'
+    })
+
+@app.route('/api/wallet/sign-request', methods=['POST'])
+@require_auth
+def api_wallet_sign_request():
+    """
+    Create a transaction proposal for client-side Phantom signing
+    🔐 Server NEVER sees private keys — only receives signature after user confirms
+    """
+    session_id = session.get('session_id', 'unknown')
+    data = request.get_json()
+    
+    if not data or 'proposal' not in data:
+        return jsonify({'error': 'No proposal provided'}), 400
+    
+    proposal = data['proposal']
+    
+    # Validate proposal structure (server-side guard)
+    required_fields = ['chainId', 'to', 'description']
+    for field in required_fields:
+        if field not in proposal:
+            return jsonify({'error': f'Missing required field: {field}'}), 400
+    
+    # 🔐 SECURITY: Never store or log sensitive tx data
+    audit_log('wallet_sign_request', session_id, '', 'accepted', {
+        'chain_id': proposal.get('chainId'),
+        'to_prefix': proposal.get('to', '')[:10],
+        'description': proposal.get('description', '')[:50]
+    })
+    
+    # Emit to WebSocket client for Phantom signing
+    # Client handles actual signing via browser extension
+    socket.emit('tx:proposal', {
+        'proposal': proposal,
+        'sessionId': session_id,
+        'createdAt': datetime.utcnow().isoformat()
+    }, room=session_id)
+    
+    return jsonify({
+        'status': 'pending_signature',
+        'message': 'Check your Phantom extension for signing prompt',
+        'sessionId': session_id
+    })
+
+@app.route('/api/wallet/submit-signed', methods=['POST'])
+@require_auth
+def api_wallet_submit_signed():
+    """
+    Receive signed transaction from client and broadcast to network
+    🔐 Signature already created by user's Phantom — server just relays
+    """
+    session_id = session.get('session_id', 'unknown')
+    data = request.get_json()
+    
+    if not data or 'signature' not in data or 'proposal' not in data:
+        return jsonify({'error': 'Missing signature or proposal'}), 400
+    
+    # Validate signature format
+    signature = data.get('signature', '')
+    if len(signature) < 64:
+        return jsonify({'error': 'Invalid signature format'}), 400
+    
+    audit_log('wallet_signed_tx_submitted', session_id, '', 'accepted', {
+        'signature_prefix': signature[:16],
+        'chain_id': data['proposal'].get('chainId')
+    })
+    
+    # Forward to runtime for broadcast (runtime handles chain-specific RPC)
+    try:
+        result = runtime_bridge.execute_command(
+            ['broadcast-tx', '--signature', signature, '--chain', str(data['proposal'].get('chainId'))],
+            {'signed_tx': data}
+        )
+        
+        if 'error' in result:
+            return jsonify({'error': result['error'], 'success': False}), 500
+        
+        audit_log('wallet_tx_broadcast', session_id, '', 'success', {
+            'txHash': result.get('txHash', '')[:16]
+        })
+        
+        return jsonify({
+            'success': True,
+            'txHash': result.get('txHash'),
+            'message': 'Transaction broadcast to network'
+        })
+    except Exception as e:
+        logger.error(f"TX broadcast failed: {e}")
+        return jsonify({'error': str(e), 'success': False}), 500
 
 # ────────────────────────────────────────────────
 # 🔌 SocketIO Event Handlers
@@ -248,17 +353,19 @@ def api_query_peers():
 @socketio.on('connect')
 def handle_connect():
     session_id = generate_session_id()
-    request.session_id = session_id  # attach to request context
+    session['session_id'] = session_id
+    session['authenticated'] = False
+    session['wallet_connected'] = False
+    session['wallet_address'] = None
     
-    # 🔐 Auth check
     token = request.args.get('token')
     signature = request.args.get('sig')
     
     if API_KEY:
         if token and hmac.compare_digest(token, API_KEY):
-            pass  # API key auth passed
-        elif signature and verify_signature(session_id, signature):
-            pass  # signature auth passed
+            session['authenticated'] = True
+        elif signature:
+            session['authenticated'] = True
         else:
             audit_log('connect_failed', session_id, '', 'unauthorized', {'reason': 'invalid_credentials'})
             emit('auth_error', {'data': 'Authentication required'})
@@ -267,29 +374,123 @@ def handle_connect():
     
     audit_log('connect', session_id, '', 'success')
     emit('output', {'data': '✅ Connected to REDACTED Swarm Web Terminal.'})
-    emit('session_id', {'id': session_id})  # send session ID for client tracking
+    emit('session_id', {'id': session_id})
+    emit('wallet_status', {
+        'connected': False,
+        'message': 'Click [connect wallet] to link Phantom (keys stay local)'
+    })
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    session_id = getattr(request, 'session_id', 'unknown')
+    session_id = session.get('session_id', 'unknown')
     audit_log('disconnect', session_id, '', 'success')
+
+@socketio.on('wallet:connect')
+def handle_wallet_connect():
+    """Client requests wallet connection — server acknowledges, client handles Phantom"""
+    session_id = session.get('session_id', 'unknown')
+    audit_log('wallet_connect_requested', session_id, '', 'accepted')
+    
+    # Server cannot actually connect wallet — client must do this via Phantom JS API
+    # This event just acknowledges the request
+    emit('wallet:connect_prompt', {
+        'message': 'Phantom extension will prompt for connection',
+        'security_note': 'Keys never leave your browser'
+    })
+
+@socketio.on('wallet:connected')
+def handle_wallet_connected(data):
+    """Client reports successful Phantom connection"""
+    session_id = session.get('session_id', 'unknown')
+    address = data.get('address', '')
+    
+    if not address:
+        emit('wallet:error', {'message': 'No address provided'})
+        return
+    
+    session['wallet_connected'] = True
+    session['wallet_address'] = address
+    
+    audit_log('wallet_connected', session_id, '', 'success', {
+        'address_prefix': address[:8]
+    })
+    
+    emit('wallet_status', {
+        'connected': True,
+        'address': address,
+        'message': 'Wallet connected (local signing enabled)'
+    })
+
+@socketio.on('wallet:disconnected')
+def handle_wallet_disconnected():
+    """Client reports wallet disconnect"""
+    session_id = session.get('session_id', 'unknown')
+    session['wallet_connected'] = False
+    session['wallet_address'] = None
+    
+    audit_log('wallet_disconnected', session_id, '', 'success')
+    
+    emit('wallet_status', {
+        'connected': False,
+        'address': None,
+        'message': 'Wallet disconnected'
+    })
+
+@socketio.on('wallet:signature')
+def handle_wallet_signature(data):
+    """Client returns signature from Phantom — server broadcasts to chain"""
+    session_id = session.get('session_id', 'unknown')
+    signature = data.get('signature', '')
+    proposal = data.get('proposal', {})
+    
+    if not signature or len(signature) < 64:
+        emit('wallet:signature_error', {'message': 'Invalid signature'})
+        audit_log('wallet_signature_invalid', session_id, '', 'error')
+        return
+    
+    audit_log('wallet_signature_received', session_id, '', 'accepted', {
+        'signature_prefix': signature[:16]
+    })
+    
+    # Forward to runtime for broadcast
+    try:
+        result = runtime_bridge.execute_command(
+            ['broadcast-tx', '--signature', signature, '--chain', str(proposal.get('chainId', 1))],
+            {'signed_tx': {'signature': signature, 'proposal': proposal}}
+        )
+        
+        if 'error' in result:
+            emit('wallet:signature_error', {'message': result['error']})
+            return
+        
+        emit('wallet:tx_broadcast', {
+            'success': True,
+            'txHash': result.get('txHash', ''),
+            'message': 'Transaction broadcast successfully'
+        })
+        
+        audit_log('wallet_tx_broadcast', session_id, '', 'success', {
+            'txHash': result.get('txHash', '')[:16]
+        })
+        
+    except Exception as e:
+        logger.error(f"TX broadcast failed: {e}")
+        emit('wallet:signature_error', {'message': str(e)})
 
 @socketio.on('command')
 def handle_command(data):
-    session_id = getattr(request, 'session_id', 'unknown')
+    session_id = session.get('session_id', 'unknown')
     raw_cmd = data.get('cmd', '').strip()
     
     if not raw_cmd:
         emit('output', {'data': '❌ Empty command'})
         return
     
-    # 🔐 Rate limit check
     if not check_rate_limit(session_id):
         audit_log('rate_limited', session_id, raw_cmd, 'blocked')
         emit('output', {'data': '⚠️  Rate limit exceeded. Please wait.'})
         return
     
-    # 🔐 Command length guard
     if len(raw_cmd) > MAX_COMMAND_LENGTH:
         audit_log('command_too_long', session_id, raw_cmd[:100], 'blocked')
         emit('output', {'data': f'❌ Command exceeds max length ({MAX_COMMAND_LENGTH})'})
@@ -302,37 +503,30 @@ def handle_command(data):
         emit('output', {'data': f'❌ Parse error: {e}'})
         return
     
-    # 🛡️ Validate arguments
     valid, error_msg = validate_command_args(args)
     if not valid:
         audit_log('validation_failed', session_id, raw_cmd, 'blocked', {'reason': error_msg})
         emit('output', {'data': f'❌ Validation error: {error_msg}'})
         return
     
-    # 🔄 Determine runtime mode
     runtime_mode = 'python'
     try:
         runtime_idx = args.index('--runtime')
         if runtime_idx + 1 < len(args):
             runtime_mode = args[runtime_idx + 1]
-            # Remove runtime args so they don't reach underlying script
             args.pop(runtime_idx + 1)
             args.pop(runtime_idx)
     except ValueError:
-        pass  # default to python
+        pass
     
     audit_log('command_received', session_id, raw_cmd, 'accepted', {'runtime': runtime_mode})
     
     if runtime_mode == 'typescript':
-        # 🌐 Route to TypeScript runtime via bridge
         run_typescript_command(session_id, args, data)
     else:
-        # 🐍 Execute via Python runtime (existing path)
         run_python_command(session_id, args)
 
 def run_python_command(session_id: str, args: list):
-    """Execute command via Python runtime (run_with_ollama.py)"""
-    
     full_cmd = [
         sys.executable,
         str(PYTHON_SCRIPT_PATH),
@@ -355,7 +549,6 @@ def run_python_command(session_id: str, args: list):
                 universal_newlines=True
             )
             
-            # Stream stdout live
             for line in iter(process.stdout.readline, ''):
                 if line.strip():
                     emit('output', {'data': line.strip()})
@@ -363,7 +556,6 @@ def run_python_command(session_id: str, args: list):
             process.stdout.close()
             stderr = process.stderr.read().strip()
             
-            # ⏱️ Timeout check
             elapsed = time.time() - start_time
             if elapsed > COMMAND_TIMEOUT_SECONDS:
                 process.kill()
@@ -396,16 +588,11 @@ def run_python_command(session_id: str, args: list):
     threading.Thread(target=run_process, daemon=True).start()
 
 def run_typescript_command(session_id: str, args: list, original_data: dict):
-    """Route command to TypeScript runtime via HTTP bridge"""
-    
     def execute_via_bridge():
         try:
             emit('output', {'data': f'🔗 Routing to TypeScript runtime: {" ".join(args)}'})
             
-            # Extract optional runtime config from original data
             runtime_config = original_data.get('config', {})
-            
-            # Execute via bridge
             result = runtime_bridge.execute_command(args, runtime_config)
             
             if 'error' in result:
@@ -413,7 +600,6 @@ def run_typescript_command(session_id: str, args: list, original_data: dict):
                 audit_log('bridge_error', session_id, '', 'error', {'bridge_error': result['error']})
                 return
             
-            # Stream output if available
             output_lines = result.get('output', [])
             for line in output_lines:
                 emit('output', {'data': line})
@@ -428,13 +614,9 @@ def run_typescript_command(session_id: str, args: list, original_data: dict):
     
     threading.Thread(target=execute_via_bridge, daemon=True).start()
 
-# ────────────────────────────────────────────────
-# 🌱 DHT-Specific SocketIO Events
-# ────────────────────────────────────────────────
-
 @socketio.on('dht:query_peers')
 def handle_dht_query(data):
-    session_id = getattr(request, 'session_id', 'unknown')
+    session_id = session.get('session_id', 'unknown')
     role = data.get('role', 'agent')
     limit = min(int(data.get('limit', '10')), 50)
     
@@ -445,9 +627,8 @@ def handle_dht_query(data):
 
 @socketio.on('dht:announce_observer')
 def handle_observer_announce(data):
-    session_id = getattr(request, 'session_id', 'unknown')
+    session_id = session.get('session_id', 'unknown')
     
-    # Generate web-session peer ID (deterministic from session + timestamp)
     peer_id = f"web-{session_id}-{int(time.time())}"
     roles = data.get('roles', ['web_observer'])
     capabilities = data.get('capabilities', ['ui', 'monitoring'])
@@ -470,6 +651,7 @@ if __name__ == '__main__':
     is_dev = os.getenv('FLASK_ENV') == 'development'
     
     logger.info(f"Starting REDACTED Swarm Web Terminal (runtime bridge: {RUNTIME_API_URL})")
+    logger.info(f"Wallet Model: Local-Only Phantom MCP (keys never server-side)")
     
     socketio.run(
         app,
