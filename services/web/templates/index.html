@@ -8,26 +8,211 @@
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.5.0/lib/xterm.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.7.5/dist/socket.io.min.js"></script>
     <style>
-        body { margin: 0; background: #0a000f; color: #ff69b4; font-family: monospace; overflow: hidden; }
-        #terminal { width: 100vw; height: 100vh; padding: 10px; box-sizing: border-box; }
-        .prompt { color: #00ffcc; font-weight: bold; }
+        :root {
+            --bg: #0a000f;
+            --fg: #ff69b4;
+            --cursor: #00ffcc;
+            --prompt: #00ffcc;
+            --error: #ff4444;
+            --success: #44ff44;
+            --warning: #ffaa44;
+            --dim: #666;
+        }
+        body { 
+            margin: 0; 
+            background: var(--bg); 
+            color: var(--fg); 
+            font-family: monospace; 
+            overflow: hidden; 
+        }
+        #terminal { width: 100vw; height: calc(100vh - 40px); padding: 10px; box-sizing: border-box; }
+        #status-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 40px;
+            background: rgba(10, 0, 15, 0.95);
+            border-top: 1px solid var(--prompt);
+            display: flex;
+            align-items: center;
+            padding: 0 15px;
+            font-size: 12px;
+            gap: 20px;
+        }
+        #status-bar span { color: var(--dim); }
+        #status-bar .value { color: var(--prompt); margin-left: 5px; }
+        #status-bar .auth-ok { color: var(--success); }
+        #status-bar .auth-fail { color: var(--error); }
+        #auth-modal {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(10, 0, 15, 0.95);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        #auth-modal.hidden { display: none; }
+        .auth-box {
+            background: #111;
+            border: 2px solid var(--prompt);
+            padding: 25px;
+            border-radius: 8px;
+            max-width: 400px;
+            width: 90%;
+        }
+        .auth-box h3 { margin: 0 0 15px 0; color: var(--prompt); }
+        .auth-box input {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            background: #222;
+            border: 1px solid var(--prompt);
+            color: var(--fg);
+            font-family: monospace;
+            box-sizing: border-box;
+        }
+        .auth-box button {
+            width: 100%;
+            padding: 12px;
+            background: var(--prompt);
+            color: var(--bg);
+            border: none;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        .auth-box button:hover { opacity: 0.9; }
+        .auth-box .hint { font-size: 11px; color: var(--dim); margin-top: 10px; }
+        .prompt { color: var(--prompt); font-weight: bold; }
+        .error { color: var(--error); }
+        .success { color: var(--success); }
+        .warning { color: var(--warning); }
+        .dim { color: var(--dim); }
+        
+        /* DHT panel */
+        #dht-panel {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            width: 300px;
+            background: rgba(17, 0, 25, 0.9);
+            border: 1px solid var(--prompt);
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            max-height: 200px;
+            overflow-y: auto;
+            display: none;
+        }
+        #dht-panel.visible { display: block; }
+        #dht-panel h4 { margin: 0 0 8px 0; color: var(--prompt); }
+        #dht-panel .peer { 
+            padding: 4px 0; 
+            border-bottom: 1px dashed #333;
+            font-size: 10px;
+        }
+        #dht-panel .peer:last-child { border-bottom: none; }
+        #dht-panel .peer-id { color: var(--cursor); word-break: break-all; }
+        #dht-panel .roles { color: var(--warning); font-size: 9px; }
     </style>
 </head>
 <body>
+    <!-- Auth Modal (shown if auth required) -->
+    <div id="auth-modal">
+        <div class="auth-box">
+            <h3>🔐 REDACTED Swarm Access</h3>
+            <input type="password" id="api-key" placeholder="API Key (WEB_TERMINAL_API_KEY)">
+            <input type="text" id="peer-id" placeholder="Peer ID (optional, for signature auth)">
+            <button id="auth-btn">Connect to Lattice</button>
+            <div class="hint">
+                • API key auth: enter WEB_TERMINAL_API_KEY from .env<br>
+                • Signature auth: enter your libp2p Peer ID (future: Ed25519)<br>
+                • Leave blank for dev mode (if API_KEY not set)
+            </div>
+        </div>
+    </div>
+
     <div id="terminal"></div>
+    
+    <!-- DHT Peer Panel (toggle with /dht command) -->
+    <div id="dht-panel">
+        <h4>🌱 DHT Peers <span id="dht-count" class="dim">(0)</span></h4>
+        <div id="dht-peers"></div>
+    </div>
+
+    <!-- Status Bar -->
+    <div id="status-bar">
+        <span>Session: <span id="session-id" class="value dim">—</span></span>
+        <span>Auth: <span id="auth-status" class="value auth-fail">pending</span></span>
+        <span>Runtime: <span id="runtime-mode" class="value">python</span> <span class="dim" id="runtime-toggle" style="cursor:pointer">[toggle]</span></span>
+        <span>Connected: <span id="connection-status" class="value dim">no</span></span>
+        <span style="margin-left:auto" class="dim">redacted-chan v3.2-heartbloom ♡</span>
+    </div>
 
     <script>
-        const socket = io();
+        // ────────────────────────────────────────────────
+        // 🔐 Auth & Connection Setup
+        // ────────────────────────────────────────────────
+        
+        let socket;
+        let sessionId = null;
+        let currentRuntime = 'python';  // 'python' or 'typescript'
+        let apiKey = localStorage.getItem('swarm_api_key') || '';
+        let peerId = localStorage.getItem('swarm_peer_id') || '';
+        
+        // Check if auth modal should show (we don't know server config, so always show if no key)
+        const authModal = document.getElementById('auth-modal');
+        if (!apiKey) {
+            authModal.classList.remove('hidden');
+        } else {
+            authModal.classList.add('hidden');
+            initTerminal();
+        }
+        
+        document.getElementById('auth-btn').addEventListener('click', () => {
+            apiKey = document.getElementById('api-key').value.trim();
+            peerId = document.getElementById('peer-id').value.trim();
+            
+            if (apiKey) localStorage.setItem('swarm_api_key', apiKey);
+            if (peerId) localStorage.setItem('swarm_peer_id', peerId);
+            
+            authModal.classList.add('hidden');
+            initTerminal();
+        });
+        
+        function initTerminal() {
+            // Build connection URL with auth params
+            const queryParams = new URLSearchParams();
+            if (apiKey) queryParams.set('token', apiKey);
+            if (peerId) {
+                // Simple signature placeholder (in prod, compute real Ed25519 sig)
+                const sig = btoa(peerId + ':' + Date.now()).replace(/=/g, '');
+                queryParams.set('sig', sig);
+            }
+            
+            socket = io({ query: queryParams.toString() });
+            setupTerminal();
+            setupEventHandlers();
+        }
+        
+        // ────────────────────────────────────────────────
+        // Terminal Setup (xterm.js)
+        // ────────────────────────────────────────────────
+        
         const term = new Terminal({
             cursorBlink: true,
             theme: { 
                 background: '#0a000f',
                 foreground: '#ff69b4',
-                cursor: '#00ffcc'
+                cursor: '#00ffcc',
+                selection: 'rgba(255, 105, 180, 0.3)'
             },
             fontFamily: 'monospace',
             fontSize: 15,
-            lineHeight: 1.2
+            lineHeight: 1.2,
+            scrollback: 5000
         });
 
         term.open(document.getElementById('terminal'));
@@ -36,21 +221,42 @@
         let historyIndex = -1;
         let currentBuffer = '';
         let isProcessing = false;
-
+        let dhtPanelVisible = false;
+        
         // Welcome with redacted-chan personality
         term.writeln('╔════════════════════════════════════════════════════════════╗');
         term.writeln('║           redacted-chan • REDACTED Swarm Terminal          ║');
         term.writeln('║               heart-mode activated (´• ω •`) ♡             ║');
         term.writeln('╚════════════════════════════════════════════════════════════╝\r\n');
+        term.writeln('\x1b[38;5;213mType \x1b[38;5;206m/help\x1b[38;5;213m for commands, \x1b[38;5;206m/dht\x1b[38;5;213m to toggle peer view\x1b[0m\r\n');
         printPrompt();
 
         function printPrompt() {
-            term.write('\r\n\x1b[38;5;206mredacted-chan>\x1b[0m ');
+            const modeIndicator = currentRuntime === 'typescript' ? '🔷' : '🐍';
+            term.write(`\r\n\x1b[38;5;206mredacted-chan\x1b[38;5;213m[${modeIndicator}]\x1b[38;5;206m>\x1b[0m `);
         }
+        
+        function updateStatusBar() {
+            document.getElementById('session-id').textContent = sessionId ? sessionId.slice(0,8)+'…' : '—';
+            document.getElementById('auth-status').textContent = sessionId ? 'ok' : 'pending';
+            document.getElementById('auth-status').className = sessionId ? 'value auth-ok' : 'value auth-fail';
+            document.getElementById('runtime-mode').textContent = currentRuntime;
+            document.getElementById('connection-status').textContent = socket?.connected ? 'yes' : 'no';
+            document.getElementById('connection-status').className = socket?.connected ? 'value success' : 'value dim';
+        }
+        
+        function toggleRuntime() {
+            currentRuntime = currentRuntime === 'python' ? 'typescript' : 'python';
+            term.writeln(`\r\n\x1b[38;5;213m▶ Runtime switched to \x1b[38;5;206m${currentRuntime}\x1b[38;5;213m\x1b[0m`);
+            updateStatusBar();
+        }
+        
+        // ────────────────────────────────────────────────
+        // Input Handling
+        // ────────────────────────────────────────────────
 
-        // Improved input handling
         term.onData(data => {
-            if (isProcessing) return; // prevent typing while LLM is thinking
+            if (isProcessing) return;
 
             const code = data.charCodeAt(0);
 
@@ -59,12 +265,27 @@
                     printPrompt();
                     return;
                 }
-                term.writeln(''); // new line
+                
+                // Handle special commands
+                if (handleSpecialCommand(currentBuffer)) {
+                    currentBuffer = '';
+                    printPrompt();
+                    return;
+                }
+                
+                term.writeln('');
                 commandHistory.push(currentBuffer);
                 historyIndex = commandHistory.length;
 
-                term.write('\x1b[38;5;206mredacted-chan>\x1b[0m ' + currentBuffer + '\r\n'); // echo with prompt
-                socket.emit('command', { cmd: currentBuffer });
+                const modeIndicator = currentRuntime === 'typescript' ? '🔷' : '🐍';
+                term.write(`\x1b[38;5;206mredacted-chan\x1b[38;5;213m[${modeIndicator}]\x1b[38;5;206m>\x1b[0m ` + currentBuffer + '\r\n');
+                
+                // Inject runtime flag if not already present
+                const cmdWithRuntime = currentBuffer.includes('--runtime') 
+                    ? currentBuffer 
+                    : `${currentBuffer} --runtime ${currentRuntime}`;
+                
+                socket.emit('command', { cmd: cmdWithRuntime });
                 currentBuffer = '';
                 isProcessing = true;
                 term.write('\x1b[38;5;213mthinking... (♡´艸`)\x1b[0m\r\n');
@@ -78,38 +299,204 @@
                 if (historyIndex > 0) {
                     historyIndex--;
                     currentBuffer = commandHistory[historyIndex];
-                    term.write('\r\x1b[K' + '\x1b[38;5;206mredacted-chan>\x1b[0m ' + currentBuffer);
+                    term.write('\r\x1b[K' + `\x1b[38;5;206mredacted-chan\x1b[38;5;213m[${currentRuntime === 'typescript' ? '🔷' : '🐍'}]\x1b[38;5;206m>\x1b[0m ` + currentBuffer);
                 }
             } else if (data === '\x1b[B') { // Down arrow
                 if (historyIndex < commandHistory.length - 1) {
                     historyIndex++;
                     currentBuffer = commandHistory[historyIndex];
-                    term.write('\r\x1b[K' + '\x1b[38;5;206mredacted-chan>\x1b[0m ' + currentBuffer);
+                    term.write('\r\x1b[K' + `\x1b[38;5;206mredacted-chan\x1b[38;5;213m[${currentRuntime === 'typescript' ? '🔷' : '🐍'}]\x1b[38;5;206m>\x1b[0m ` + currentBuffer);
                 } else {
                     historyIndex = commandHistory.length;
                     currentBuffer = '';
-                    term.write('\r\x1b[K' + '\x1b[38;5;206mredacted-chan>\x1b[0m ');
+                    term.write('\r\x1b[K' + `\x1b[38;5;206mredacted-chan\x1b[38;5;213m[${currentRuntime === 'typescript' ? '🔷' : '🐍'}]\x1b[38;5;206m>\x1b[0m `);
                 }
             } else {
                 currentBuffer += data;
                 term.write(data);
             }
         });
-
-        socket.on('output', msg => {
-            if (msg.data.includes('thinking...')) return;
-            term.writeln(msg.data);
+        
+        // ────────────────────────────────────────────────
+        // Special Commands (/help, /dht, /clear, etc.)
+        // ────────────────────────────────────────────────
+        
+        function handleSpecialCommand(cmd) {
+            const parts = cmd.trim().split(/\s+/);
+            const command = parts[0].toLowerCase();
             
-            // End of response
-            if (!isProcessing && msg.data.trim() !== '') {
-                isProcessing = false;
-                printPrompt();
+            switch(command) {
+                case '/help':
+                    term.writeln('\r\n\x1b[38;5;206mAvailable Commands:\x1b[0m');
+                    term.writeln('  \x1b[38;5;213m/help\x1b[0m              — Show this help');
+                    term.writeln('  \x1b[38;5;213m/clear\x1b[0m             — Clear terminal');
+                    term.writeln('  \x1b[38;5;213m/dht [role] [limit]\x1b[0m — Query DHT peers (default: agent, 10)');
+                    term.writeln('  \x1b[38;5;213m/dht-announce\x1b[0m      — Announce this session as observer');
+                    term.writeln('  \x1b[38;5;213m/runtime\x1b[0m           — Toggle python/typescript runtime');
+                    term.writeln('  \x1b[38;5;213m/status\x1b[0m            — Show connection/auth status');
+                    term.writeln('\r\n\x1b[38;5;206mAgent Commands:\x1b[0m');
+                    term.writeln('  \x1b[38;5;213m--agent <path>\x1b[0m     — Specify agent .character.json');
+                    term.writeln('  \x1b[38;5;213m--model <name>\x1b[0m     — Choose model (qwen2.5, llama3, etc.)');
+                    term.writeln('  \x1b[38;5;213m--runtime <mode>\x1b[0m   — python or typescript (auto-set by toggle)');
+                    term.writeln('\x1b[38;5;213mExample:\x1b[0m --agent ../agents/daunted.character.json --model qwen2.5');
+                    return true;
+                    
+                case '/clear':
+                    term.clear();
+                    term.writeln('\x1b[38;5;213mTerminal cleared. redacted-chan remembers ♡\x1b[0m');
+                    return true;
+                    
+                case '/runtime':
+                    toggleRuntime();
+                    return true;
+                    
+                case '/status':
+                    term.writeln(`\r\n\x1b[38;5;206mSession:\x1b[0m ${sessionId || '—'}`);
+                    term.writeln(`\x1b[38;5;206mAuth:\x1b[0m ${sessionId ? '✓ verified' : '✗ pending'}`);
+                    term.writeln(`\x1b[38;5;206mRuntime:\x1b[0m ${currentRuntime}`);
+                    term.writeln(`\x1b[38;5;206mConnected:\x1b[0m ${socket?.connected ? 'yes' : 'no'}`);
+                    term.writeln(`\x1b[38;5;206mDHT Panel:\x1b[0m ${dhtPanelVisible ? 'visible' : 'hidden'}`);
+                    return true;
+                    
+                case '/dht':
+                    const role = parts[1] || 'agent';
+                    const limit = parts[2] || '10';
+                    term.writeln(`\r\n\x1b[38;5;213m🔍 Querying DHT for role:\x1b[0m \x1b[38;5;206m${role}\x1b[0m (limit: ${limit})`);
+                    socket.emit('dht:query_peers', { role, limit: parseInt(limit) });
+                    if (!dhtPanelVisible) {
+                        document.getElementById('dht-panel').classList.add('visible');
+                        dhtPanelVisible = true;
+                    }
+                    return true;
+                    
+                case '/dht-announce':
+                    term.writeln(`\r\n\x1b[38;5;213m📡 Announcing web observer to DHT...\x1b[0m`);
+                    socket.emit('dht:announce_observer', {
+                        roles: ['web_observer'],
+                        capabilities: ['ui', 'monitoring', 'terminal'],
+                        characterHash: 'web-session-' + (sessionId || 'unknown')
+                    });
+                    return true;
+                    
+                default:
+                    return false; // Not a special command, proceed normally
             }
-        });
+        }
 
-        socket.on('connect', () => {
-            term.writeln('\x1b[32m✓ Connected to redacted-chan heart core ♡\x1b[0m');
-        });
+        // ────────────────────────────────────────────────
+        // Socket.IO Event Handlers
+        // ────────────────────────────────────────────────
+
+        function setupEventHandlers() {
+            socket.on('connect', () => {
+                term.writeln('\r\n\x1b[32m✓ Connected to redacted-chan heart core ♡\x1b[0m');
+                updateStatusBar();
+            });
+            
+            socket.on('disconnect', () => {
+                term.writeln('\r\n\x1b[31m✗ Disconnected from lattice\x1b[0m');
+                updateStatusBar();
+            });
+            
+            socket.on('auth_error', (msg) => {
+                term.writeln(`\r\n\x1b[31m🔐 Authentication failed: ${msg.data}\x1b[0m`);
+                term.writeln('\x1b[38;5;213mCheck your API key or reload to re-authenticate\x1b[0m');
+                document.getElementById('auth-status').className = 'value auth-fail';
+                updateStatusBar();
+            });
+            
+            socket.on('session_id', (msg) => {
+                sessionId = msg.id;
+                document.getElementById('session-id').textContent = sessionId.slice(0,8)+'…';
+                document.getElementById('auth-status').className = 'value auth-ok';
+                document.getElementById('auth-status').textContent = 'ok';
+                updateStatusBar();
+                term.writeln(`\x1b[38;5;213m[Session: \x1b[38;5;206m${sessionId.slice(0,8)}…\x1b[38;5;213m]\x1b[0m`);
+            });
+            
+            socket.on('output', msg => {
+                // Skip duplicate "thinking" messages
+                if (msg.data.includes('thinking...')) return;
+                
+                // Colorize common patterns
+                let formatted = msg.data
+                    .replace(/✅/g, '\x1b[32m✅\x1b[0m')
+                    .replace(/❌/g, '\x1b[31m❌\x1b[0m')
+                    .replace(/⚠️/g, '\x1b[33m⚠️\x1b[0m')
+                    .replace(/💥/g, '\x1b[31m💥\x1b[0m')
+                    .replace(/🔷/g, '\x1b[38;5;206m🔷\x1b[0m');
+                
+                term.writeln(formatted);
+                
+                // End of response detection (simple heuristic)
+                if (isProcessing && (msg.data.includes('Process exited') || msg.data.includes('complete') || msg.data.trim().endsWith('♡'))) {
+                    isProcessing = false;
+                    printPrompt();
+                }
+            });
+            
+            // ────────────────────────────────────────────────
+            // 🌱 DHT Event Handlers
+            // ────────────────────────────────────────────────
+            
+            socket.on('dht:peers_found', (data) => {
+                const peers = data.peers || [];
+                const panel = document.getElementById('dht-peers');
+                const countEl = document.getElementById('dht-count');
+                
+                panel.innerHTML = '';
+                countEl.textContent = `(${peers.length})`;
+                
+                if (peers.length === 0) {
+                    panel.innerHTML = '<div class="dim">No peers found for this role</div>';
+                    return;
+                }
+                
+                peers.forEach(peer => {
+                    const div = document.createElement('div');
+                    div.className = 'peer';
+                    div.innerHTML = `
+                        <div class="peer-id">${peer.peerId.slice(0,16)}…</div>
+                        <div class="roles">${(peer.roles||[]).join(', ') || 'agent'}</div>
+                        <div class="dim">${new Date(peer.timestamp).toLocaleTimeString()}</div>
+                    `;
+                    panel.appendChild(div);
+                });
+                
+                term.writeln(`\x1b[38;5;213m🌱 Found \x1b[38;5;206m${peers.length}\x1b[38;5;213m peers in DHT (panel updated)\x1b[0m`);
+            });
+            
+            socket.on('dht:announced', (data) => {
+                term.writeln(`\x1b[32m✅ Announced to DHT: \x1b[38;5;206m${data.peerId.slice(0,16)}…\x1b[0m`);
+                // Auto-refresh peer list
+                socket.emit('dht:query_peers', { role: 'web_observer', limit: 5 });
+            });
+            
+            socket.on('dht:announce_error', (data) => {
+                term.writeln(`\x1b[31m❌ DHT announce failed: ${data.error}\x1b[0m`);
+            });
+        }
+        
+        function setupTerminal() {
+            // Focus terminal on load
+            term.focus();
+            
+            // Re-focus on click
+            document.addEventListener('click', () => term.focus());
+            
+            // Handle window resize
+            window.addEventListener('resize', () => {
+                term.resize(Math.floor(window.innerWidth / 8), Math.floor((window.innerHeight - 40) / 15));
+            });
+            
+            // Initial resize
+            term.resize(Math.floor(window.innerWidth / 8), Math.floor((window.innerHeight - 40) / 15));
+            
+            updateStatusBar();
+            
+            // Runtime toggle in status bar
+            document.getElementById('runtime-toggle').addEventListener('click', toggleRuntime);
+        }
     </script>
 </body>
 </html>
