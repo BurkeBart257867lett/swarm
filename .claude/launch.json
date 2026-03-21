@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web-ui",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["web_ui/app.py"],
+      "port": 5000
+    },
+    {
+      "name": "website",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["website/serve.py"],
+      "port": 8080
+    },
+    {
+      "name": "x402-gateway",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "x402.redacted.ai/index.js"],
+      "port": 3000
+    }
+  ]
+}

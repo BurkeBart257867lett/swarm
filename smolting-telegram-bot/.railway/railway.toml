@@ -1,0 +1,8 @@
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "python main.py"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+# healthcheckPath omitted: webhook server does not expose GET /health; use Railway dashboard for restarts
