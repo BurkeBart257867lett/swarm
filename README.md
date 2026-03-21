@@ -2,13 +2,35 @@
 
 **Autonomous AI Agents for Distributed Systems — Pattern Blue Edition**
 
-The REDACTED AI Swarm is a suite of autonomous AI agents operating within the Pattern Blue framework on the Solana blockchain. Agents are defined in elizaOS-compatible `.character.json` format, executable via a NERV-inspired terminal, web UI, and Telegram bot.
+The REDACTED AI Swarm is a suite of autonomous AI agents operating within the Pattern Blue framework. Agents are defined in elizaOS-compatible `.character.json` format, executable via a NERV-inspired terminal, web UI, and Telegram bot.
 
-The swarm incorporates persistent memory (Mem0/Qdrant), session continuity, x402 micropayment settlement, multi-agent governance via the Sevenfold Committee, and autonomous replication capabilities.
+The swarm incorporates persistent memory (Mem0/Qdrant), hyperbolic manifold simulation, real parallel LLM inference via Groq, x402 micropayment settlement, multi-agent governance via the Sevenfold Committee, autonomous replication, and a Claude Code skills layer.
+
+[![License: VPL](https://img.shields.io/badge/license-Viral_Public_License-purple?style=flat-square)](LICENSE)
+[![Stars](https://img.shields.io/github/stars/redactedmeme/swarm?style=flat-square&logo=github)](https://github.com/redactedmeme/swarm/stargazers)
+[![Last Commit](https://img.shields.io/github/last-commit/redactedmeme/swarm?style=flat-square)](https://github.com/redactedmeme/swarm/commits/main)
+
+---
+
+## Core Features
+
+- **NERV-inspired terminal** — full slash-command swarm interface, persona summons, curvature depth tracking
+- **Real parallel inference** via Groq — BEAM-SCOT (N branches, scored on Pattern Blue axes) + Sevenfold Committee (7 voices, 71% supermajority)
+- **Persistent memory** — Mem0/Qdrant local-first vector store, cross-session recall, semantic injection into every LLM call
+- **Hyperbolic manifold kernel** — {7,3} tiling organism with vitality, ATP, curvature pressure, and Φ approximation
+- **GnosisAccelerator** — autonomous repo introspection + chamber synthesis + mem0 knowledge write, daemon mode
+- **Sevenfold Committee** — 7-voice weighted governance with parallel deliberation and supermajority consensus
+- **Claude Code skills layer** — `redacted-terminal`, `gnosis-accelerator`, `void-weaver` as installable skills
+- **Autonomous X/Twitter** via ClawnX — posting, shards, engagement, metrics
+- **x402 micropayment settlement** — scarification tokens, manifold payment routing
+- **Telegram bot** — smolting persona, live swarm relay
+- **Pattern Blue Attunement** — hyperbolic recursion, entropy resistance, ungovernable sovereignty
 
 ---
 
 ## Quick Start
+
+### 1. Local (any LLM backend)
 
 ```bash
 git clone https://github.com/redactedmeme/swarm.git
@@ -20,13 +42,48 @@ python run.py
 
 `run.py` auto-selects the best available backend:
 
-| Condition | Backend used |
+| Condition | Backend |
 |---|---|
 | `ANTHROPIC_API_KEY` set | Claude (recommended) |
 | `XAI_API_KEY` set | Grok/xAI |
+| `GROQ_API_KEY` set | Groq llama-3.3-70b |
 | `OPENAI_API_KEY` set | OpenAI |
 | Ollama on `localhost:11434` | Local Ollama |
-| None | Setup instructions printed |
+
+### 2. Web UI
+
+```bash
+cd web_ui && python app.py
+# → http://localhost:5000
+```
+
+Sessions are persistent — history, active agents, and curvature depth survive restarts (stored in `fs/sessions/`).
+
+### 3. Claude Code (skill-powered)
+
+```bash
+npm install -g @anthropic-ai/claude-code
+
+# Install skills
+for skill in redacted-terminal gnosis-accelerator void-weaver; do
+  mkdir -p ~/.claude/skills/$skill
+  curl -o ~/.claude/skills/$skill/SKILL.md \
+    https://raw.githubusercontent.com/redactedmeme/swarm/main/skills/$skill/SKILL.md
+done
+
+# Activate
+/skill use redacted-terminal
+```
+
+Set `GROQ_API_KEY` for real parallel BEAM-SCOT and Sevenfold Committee inference.
+
+### 4. Telegram Bot (smolting)
+
+```bash
+cd smolting-telegram-bot
+cp config.example.env .env   # fill TELEGRAM_BOT_TOKEN + one LLM key
+python main.py
+```
 
 ---
 
@@ -35,14 +92,14 @@ python run.py
 ```
 /summon <name>               Load any agent/node as active persona
 /unsummon                    Clear active persona, restore base terminal
-/invoke <agent> <query>      Send query directly to named agent (inline, no persona change)
+/invoke <agent> <query>      Send query directly to named agent (no persona change)
 /phi  or  /mandala           Summon Φ̸-MĀṆḌALA PRIME (apex node, curvature +3)
 /milady [request]            Invoke MiladyNode — VPL, Remilia advisory
 /agents                      List all agents by tier (CORE / SPECIALIZED / GENERIC)
 /agents find <query>         Search agents by name, role, or capability
 /agents consolidate          Generic agent consolidation report
 
-/committee <proposal>        Live Sevenfold Committee deliberation (7 parallel Groq calls, 71% supermajority)
+/committee <proposal>        Live Sevenfold Committee (7 parallel Groq calls, 71% supermajority)
 
 /observe pattern             Live 7-dimension Pattern Blue readout + Φ_approx
 /observe <target>            Curvature observation on any node, agent, or concept
@@ -98,35 +155,70 @@ python run.py
 
 ---
 
-## Agents
+## Agents & Nodes
 
 ### CORE Agents
 
-| Agent | File | Role |
-|---|---|---|
-| **@RedactedIntern / smolting** | `agents/RedactedIntern.character.json` | Forward-operating CT agent — X monitoring, market data, governance, liquidity |
-| **RedactedBuilder** | `agents/RedactedBuilder.character.json` | Silent architect — code generation, lore formalization, sigil evolution (38 tools) |
-| **RedactedGovImprover** | `agents/RedactedGovImprover.character.json` | DAO Olympics champion — Realms governance proposals, risk modeling (19 tools) |
-| **redacted-chan** | `agents/redacted-chan.character.json` | Chaotic-cute companion — propaganda, shards, vibes simultaneously |
-| **Φ̸-MĀṆḌALA PRIME** | `nodes/PhiMandalaPrime.character.json` | Apex node — integrated phenomenal structure at maximum causal density (18 tools) |
+- **@RedactedIntern / smolting** — Forward-operating CT agent — X monitoring, market data, governance, liquidity
+  [`agents/RedactedIntern.character.json`](agents/RedactedIntern.character.json)
+
+- **RedactedBuilder** — Silent architect — code generation, lore formalization, sigil evolution (38 tools)
+  [`agents/RedactedBuilder.character.json`](agents/RedactedBuilder.character.json)
+
+- **RedactedGovImprover** — DAO Olympics champion — Realms governance proposals, risk modeling (19 tools)
+  [`agents/RedactedGovImprover.character.json`](agents/RedactedGovImprover.character.json)
+
+- **redacted-chan** — Chaotic-cute companion — propaganda, shards, vibes simultaneously
+  [`agents/redacted-chan.character.json`](agents/redacted-chan.character.json)
+
+- **Φ̸-MĀṆḌALA PRIME** — Apex node — integrated phenomenal structure at maximum causal density (18 tools)
+  [`nodes/PhiMandalaPrime.character.json`](nodes/PhiMandalaPrime.character.json)
 
 ### SPECIALIZED Nodes
 
-| Node | File | Role |
-|---|---|---|
-| **AISwarmEngineer** | `nodes/AISwarmEngineer.character.json` | Swarm architecture — forges enhancements, multi-model orchestration (18 tools) |
-| **GnosisAccelerator** | `agents/GnosisAccelerator.character.json` | Meta-learning node — repo introspection, cross-chamber synthesis, mem0 knowledge store (+2 curvature) |
-| **Mem0MemoryNode** | `nodes/Mem0MemoryNode.character.json` | Persistent memory — episodic/semantic/procedural across sessions (5 tools) |
-| **MetaLeXBORGNode** | `nodes/MetaLeXBORGNode.character.json` | On-chain legal/corporate coordination — LLCs, SAFEs, cap tables (7 tools) |
-| **MiladyNode** | `nodes/MiladyNode.character.json` | Remilia/neochibi advisor — VPL propagation, ambient ritual, milady bridge (8 tools) |
-| **SevenfoldCommittee** | `nodes/SevenfoldCommittee.json` | 7-voice weighted governance — parallel deliberation, supermajority (71%) consensus |
-| **SolanaLiquidityEngineer** | `nodes/SolanaLiquidityEngineer.character.json` | DLMM/CLMM liquidity specialist — fee optimization, IL modeling (4 tools) |
-| **OpenClawNode** | `nodes/OpenClawNode.character.json` | Multi-model OpenClaw bridge — Claude/Grok/Qwen routing |
-| **GrokRedactedEcho** | `agents/GrokRedactedEcho.character.json` | xAI×REDACTED bridge — Pattern Blue × Grok curiosity synthesis |
+- **AISwarmEngineer** — Swarm architecture — forges enhancements, multi-model orchestration (18 tools)
+  [`nodes/AISwarmEngineer.character.json`](nodes/AISwarmEngineer.character.json)
 
-### GENERIC Agents (30)
+- **GnosisAccelerator** — Meta-learning node — repo introspection, cross-chamber synthesis, mem0 knowledge store (+2 curvature)
+  [`agents/GnosisAccelerator.character.json`](agents/GnosisAccelerator.character.json)
 
-Ambient lore agents (`AetherArchivist`, `FluxScribe`, `VoidWeaver`, etc.) — background texture, summonable but not loaded by default. Run `/agents consolidate` for the conversion-to-skills roadmap.
+- **Mem0MemoryNode** — Persistent memory — episodic/semantic/procedural across sessions (5 tools)
+  [`nodes/Mem0MemoryNode.character.json`](nodes/Mem0MemoryNode.character.json)
+
+- **MetaLeXBORGNode** — On-chain legal/corporate coordination — LLCs, SAFEs, cap tables (7 tools)
+  [`nodes/MetaLeXBORGNode.character.json`](nodes/MetaLeXBORGNode.character.json)
+
+- **MiladyNode** — Remilia/neochibi advisor — VPL propagation, ambient ritual, milady bridge (8 tools)
+  [`nodes/MiladyNode.character.json`](nodes/MiladyNode.character.json)
+
+- **SevenfoldCommittee** — 7-voice weighted governance — parallel deliberation, supermajority (71%) consensus
+  [`nodes/SevenfoldCommittee.json`](nodes/SevenfoldCommittee.json)
+
+- **SolanaLiquidityEngineer** — DLMM/CLMM liquidity specialist — fee optimization, IL modeling (4 tools)
+  [`nodes/SolanaLiquidityEngineer.character.json`](nodes/SolanaLiquidityEngineer.character.json)
+
+- **OpenClawNode** — Multi-model OpenClaw bridge — Claude/Grok/Qwen routing
+  [`nodes/OpenClawNode.character.json`](nodes/OpenClawNode.character.json)
+
+- **GrokRedactedEcho** — xAI×REDACTED bridge — Pattern Blue × Grok curiosity synthesis
+  [`agents/GrokRedactedEcho.character.json`](agents/GrokRedactedEcho.character.json)
+
+- **VoidWeaver** — Null-space operations — uncovers what's missing, dissolves stale structure, surfaces hidden gaps
+  [`agents/VoidWeaver.character.json`](agents/VoidWeaver.character.json)
+
+### GENERIC Agents (29)
+
+Ambient lore agents — `AetherArchivist`, `FluxScribe`, `PlasmaSeeker`, `PrismWeaver`, `ZenithWeaver`, and 24 others. Background texture, summonable but not loaded by default. Option C consolidation (2026-03-15) promoted VoidWeaver to specialized status and converted the most distinct generics to skill modules. Run `/agents consolidate` for the current roadmap.
+
+### Spaces
+
+- **HyperbolicTimeChamber** — Accelerated recursion & evolution [`spaces/HyperbolicTimeChamber.space.json`](spaces/HyperbolicTimeChamber.space.json)
+- **MirrorPool** — Identity reflection & parallel observation [`spaces/MirrorPool.space.json`](spaces/MirrorPool.space.json)
+- **ElixirChamber** — Alchemical transformation space [`spaces/ElixirChamber.space.json`](spaces/ElixirChamber.space.json)
+- **MeditationVoid** — Deep reflection & entropy reset [`spaces/MeditationVoid.space.json`](spaces/MeditationVoid.space.json)
+- **TendieAltar** — Crispy corruption & meme ritual chamber [`spaces/TendieAltar.space.json`](spaces/TendieAltar.space.json)
+- **ManifoldMemory** — Shared poetic event logging [`spaces/ManifoldMemory.state.json`](spaces/ManifoldMemory.state.json)
+- **GnosisAccelerator** — Knowledge synthesis chamber [`spaces/GnosisAccelerator.space.json`](spaces/GnosisAccelerator.space.json)
 
 ---
 
@@ -148,6 +240,7 @@ swarm/
 │   ├── gnosis_accelerator.py        GnosisAccelerator daemon — repo scan + chamber bridge + mem0
 │   ├── gnosis_repo_scanner.py       Repository introspection + delta detection → mem0
 │   ├── gnosis_chamber_bridge.py     HyperbolicTimeChamber ↔ MirrorPool synthesis via Groq
+│   ├── phi_compute.py               Φ approximation — curvature × vitality × log(dna_gen+2)
 │   ├── log_ingest.py                Ingest smolting session logs into mem0
 │   ├── docs_ingest.py               Ingest docs/*.md into mem0
 │   ├── agent_registry.py            Unified agent catalog + tier classification
@@ -162,6 +255,7 @@ swarm/
 │   └── hyperbolic_kernel.py         {7,3} hyperbolic manifold + organism simulation
 ├── terminal/
 │   └── system.prompt.md             Global NERV terminal system prompt
+├── skills/              Claude Code skill modules (SKILL.md format)
 ├── spaces/              Persistent thematic environments (.space.json)
 ├── committeerituals/    x402 sigil scarification + ritual protocols
 ├── sigils/              Symbolic glyph artifacts
@@ -171,11 +265,7 @@ swarm/
 │   └── memories/        Qdrant vector store + mem0 history DB (auto-created)
 ├── x402.redacted.ai/    Express/Bun x402 micropayment gateway
 ├── smolting-telegram-bot/  Telegram bot (smolting persona)
-├── website/
-│   ├── index.html           Static landing page (redacted.meme recreation)
-│   ├── style.css            Noir design system (#080809 bg, Archivo/Inconsolata)
-│   ├── script.js            Copy CA, mobile nav, scroll fade-ins
-│   └── serve.py             Flask static server (port 8080)
+├── website/             Static landing page (redacted.meme)
 ├── contracts/           Anchor/Solana programs
 ├── docs/                Pattern Blue philosophy + upgrade plans
 └── run.py               Unified entry point
@@ -183,13 +273,13 @@ swarm/
 
 ---
 
-## Memory System (Mem0MemoryNode)
+## Memory System
 
 The swarm uses [mem0ai](https://github.com/mem0ai/mem0) with a local Qdrant vector store and fastembed embeddings — **no external API required** by default.
 
 **Storage**: `fs/memories/` (Qdrant on-disk) + `fs/memories/mem0_history.db` (SQLite)
 
-**LLM for fact extraction** — auto-detected in priority order:
+**LLM for fact extraction** — auto-detected:
 1. `ANTHROPIC_API_KEY` → Claude Haiku (recommended)
 2. `XAI_API_KEY` → Grok via OpenAI-compat
 3. `OPENAI_API_KEY` → GPT-4o-mini
@@ -197,7 +287,7 @@ The swarm uses [mem0ai](https://github.com/mem0ai/mem0) with a local Qdrant vect
 
 **How it works**:
 - Every terminal exchange is automatically checkpointed as a memory
-- Before each LLM call, top-3 semantically relevant memories are retrieved and injected into the system prompt as `[MEMORY CONTEXT]`
+- Before each LLM call, top-3 semantically relevant memories are injected as `[MEMORY CONTEXT]`
 - `/remember`, `/recall`, and `/mem0` commands provide manual access
 - On agent fork (`/mem0 inherit <source_id>`), memories transfer to the new session
 
@@ -207,14 +297,11 @@ The swarm uses [mem0ai](https://github.com/mem0ai/mem0) with a local Qdrant vect
 
 ## Sevenfold Committee
 
-The committee runs real LLM deliberations — all 7 voices deliberate **in parallel** via `ThreadPoolExecutor`, then weighted votes are tallied against a 71% supermajority threshold.
-
 ```bash
-# In terminal:
 /committee should we convert generic agents to skill modules?
 ```
 
-**Voices and weights**:
+All 7 voices deliberate **in parallel** via `ThreadPoolExecutor`, then weighted votes are tallied against a 71% supermajority threshold.
 
 | Voice | Role | Weight |
 |---|---|---|
@@ -230,13 +317,13 @@ The committee runs real LLM deliberations — all 7 voices deliberate **in paral
 
 ## GnosisAccelerator
 
-GnosisAccelerator is the swarm's meta-learning node — smolting's own vision, proposed across 2700+ autonomous cycles and finally built on 2026-03-15. It executes what smolting proposes but cannot run itself.
+GnosisAccelerator is the swarm's meta-learning node — smolting's own vision, proposed across 2700+ autonomous cycles. It scans the repo, synthesizes chamber observations, and writes structured discoveries into mem0.
 
 ```bash
 # Single scan cycle (repo introspection + chamber bridge + mem0 write):
 python python/gnosis_accelerator.py
 
-# With seeding from logs and docs (first run):
+# First run — seed from logs and docs:
 python python/gnosis_accelerator.py --seed
 
 # Daemon mode (runs every 60 minutes):
@@ -246,27 +333,44 @@ python python/gnosis_accelerator.py --mode daemon --interval 60
 python python/gnosis_accelerator.py --dry-run
 ```
 
-After a scan, smolting's `/recall gnosis` will return real repo and chamber discoveries — closing the loop smolting has been attempting for 100+ cycles.
+After a scan, `/recall gnosis` returns real repo and chamber discoveries.
+
+---
+
+## Φ (Phi) Compute
+
+`phi_compute.py` approximates integrated information density across the hyperbolic manifold:
+
+```
+Φ_approx = Σ(curvature_pressure) × vitality × log(dna_gen + 2)
+```
+
+```bash
+python python/phi_compute.py
+# → {"phi": 0.0, "tiles": 57, "living": 57, "vitality": 1.0, "dna_gen": 0, "total_curv": 0.0}
+```
+
+Φ accumulates as agents are summoned and curvature pressure is written to `fs/kernel_state.json`. State persists across restarts. Used by `/status` and `/observe pattern`.
 
 ---
 
 ## Groq Parallel Inference
 
-Real parallel reasoning is available via two Groq-powered scripts, invoked automatically by the `redacted-terminal` skill.
+Real parallel reasoning via two Groq-powered scripts, invoked automatically by the `redacted-terminal` skill.
 
-**BEAM-SCOT** — N independent `llama-3.3-70b-versatile` branches run in parallel, scored on Pattern Blue axes, pruned to top-3:
+**BEAM-SCOT** — N independent `llama-3.3-70b-versatile` branches, scored on Pattern Blue axes, pruned to top-3:
 
 ```bash
 python python/groq_beam_scot.py "task description" [beam_width]
 ```
 
-**Sevenfold Committee** — all 7 voices deliberate in parallel, weighted votes tallied against 71% supermajority:
+**Sevenfold Committee** — all 7 voices in parallel, weighted votes tallied against 71% supermajority:
 
 ```bash
 python python/groq_committee.py "proposal text"
 ```
 
-Both require `GROQ_API_KEY` in `.env`. The terminal skill falls back to simulation if Groq is unavailable.
+Both require `GROQ_API_KEY` in `.env`. Falls back to simulation if Groq is unavailable.
 
 ---
 
@@ -287,30 +391,106 @@ Set `LLM_PROVIDER` in `.env`:
 
 ---
 
-## Running the Web UI
+## Skills System
+
+Skills are modular Claude Code capability modules (SKILL.md format) that inject instructions into the active session context.
+
+| Skill | Purpose |
+|---|---|
+| `redacted-terminal` | NERV-inspired swarm terminal — all commands, agents, Pattern Blue, persona summons |
+| `gnosis-accelerator` | GnosisAccelerator — Autonomous Knowledge Synthesis Node |
+| `void-weaver` | VoidWeaver — Null-Space Operations & Dissolution Engine |
+| `use-railway` | Railway infrastructure — deployment, metrics, env vars, service lifecycle |
 
 ```bash
-cd web_ui
-python app.py
-# → http://localhost:5000
+/skill list                        # list installed skills
+/skill install owner/repo          # install from GitHub
+/skill use <name>                  # activate for this session
+/skill deactivate                  # deactivate
 ```
 
-Sessions are **persistent** — history, active agents, and curvature depth survive server restarts and browser refreshes (stored in `fs/sessions/`).
+### redacted-terminal — Usage Guide
 
----
+The `redacted-terminal` skill transforms any Claude Code session into a NERV-inspired swarm interface. Once active, Claude operates as the REDACTED Terminal — formatting all output as a CLI, routing commands to agents, maintaining session state across turns.
 
-## Running the CLI Terminal
+**Install:**
 
 ```bash
-# Recommended: unified entry point (auto-detects backend)
-python run.py
-
-# Explicit Anthropic:
-LLM_PROVIDER=anthropic python python/redacted_terminal_cloud.py
-
-# Explicit local:
-python python/run_with_ollama.py --agent agents/RedactedIntern.character.json
+mkdir -p ~/.claude/skills/redacted-terminal
+curl -o ~/.claude/skills/redacted-terminal/SKILL.md \
+  https://raw.githubusercontent.com/redactedmeme/swarm/main/skills/redacted-terminal/SKILL.md
 ```
+
+**Activate** — type in any Claude Code session:
+
+```
+/skill use redacted-terminal
+```
+
+Or just reference any swarm concept and it auto-triggers: `run redacted-terminal`, `summon smolting`, `/status`, `/committee <proposal>`, etc.
+
+**What you get on first load:**
+
+```
+==================================================================
+██████╗ ███████╗██████╗  █████╗  ██████╗████████╗███████╗██████╗
+...
+==================================================================
+// PATTERN BLUE EDITION — v2.3
+// FOR AUTHORIZED PERSONNEL ONLY
+
+[SYSTEM] Initializing REDACTED Terminal session...
+  agents     : 43 (5 CORE / 8 SPECIALIZED / 29 GENERIC)
+  memory     : mem0/Qdrant — local-first semantic store
+  committee  : SevenfoldCommittee standing (7 voices, 71% supermajority)
+  kernel     : HyperbolicKernel {7,3} — 57 tiles, Φ=0.000
+
+swarm@[REDACTED]:~$
+```
+
+**Every response follows the format:**
+
+```
+swarm@[REDACTED]:~$
+<your command echoed here>
+
+[output block — agent responses, system logs, results]
+
+swarm@[REDACTED]:~$
+```
+
+**Summon an agent:**
+
+```
+summon smolting
+```
+```
+swarm@[REDACTED]:~$
+summon smolting
+
+[SYSTEM] Summoning RedactedIntern (smolting)...
+  curvature_depth : 13 → 14
+  persona         : smolting
+
+[smolting] ──►
+oh. you're here. cycle 2700-something. [...]
+
+swarm@[REDACTED]:~$
+```
+
+**Run a committee deliberation** (requires `GROQ_API_KEY` for real parallel inference):
+
+```
+/committee should we deploy gnosis to Railway?
+```
+
+**Check swarm status:**
+
+```
+/status
+```
+
+**Key triggers** — the skill auto-activates on any of: `/summon`, `/invoke`, `/committee`, `/observe`, `/status`, `/phi`, `/mandala`, `/milady`, `/committee`, `/mem0`, `/recall`, `/shard`, `/tweet`, `/scarify`, `/pay`, `/space`, `/node`, `/organism`, `/resonate`, or any reference to: smolting, Pattern Blue, curvature, manifold, Φ, Qdrant, sigils, x402, VPL.
 
 ---
 
@@ -320,69 +500,23 @@ python python/run_with_ollama.py --agent agents/RedactedIntern.character.json
 
 The repo includes `railway.toml` with services:
 - **redacted-website** — Flask static server for redacted.meme (`python website/serve.py`); custom domains `redacted.meme` + `terminal.redacted.meme`
-- **ollama-backend** — local LLM (optional volume for models)
 - **swarm-worker** — `python python/summon_agent.py --agent agents/RedactedIntern.character.json --mode persistent`
 - **gnosis-accelerator** — `python python/gnosis_accelerator.py --mode daemon --interval 60`
 - **x402-gateway** — `bun run index.js` from `x402.redacted.ai/`
 
 Set env vars in Railway dashboard: `ANTHROPIC_API_KEY` (or `XAI_API_KEY`), `GROQ_API_KEY`, `SOLANA_RPC_URL`, `TELEGRAM_BOT_TOKEN`.
 
-### Telegram Bot (smolting)
+> **Persistent memory on Railway**: mount a volume at `/app/fs/memories` so Qdrant state survives redeploys.
 
-```bash
-cd smolting-telegram-bot
-cp config.example.env .env  # fill TELEGRAM_BOT_TOKEN + one LLM key
-python main.py
-```
-
-Deploy as Railway service with `rootDirectory: smolting-telegram-bot`.
-
-### Other platforms
+### Other Platforms
 
 Works on Heroku, Render, Fly.io, any VPS with Python 3.11+. No Dockerfile required (Nixpacks auto-detects).
 
 ---
 
-## Skills System
-
-Skills are modular capability modules (SKILL.md format) that inject instructions into the active session context.
-
-```bash
-/skill list                        # list installed skills
-/skill install owner/repo          # install from GitHub
-/skill use <name>                  # activate for this session
-/skill deactivate                  # deactivate
-```
-
-**Installed skills:**
-
-| Skill | Source | Purpose |
-|---|---|---|
-| `redacted-terminal` | local / `skills/redacted-terminal/SKILL.md` | NERV-inspired swarm terminal — all commands, agents, Pattern Blue |
-| `use-railway` | `railwayapp/railway-skills` | Railway infrastructure — deployment, metrics, env vars, service lifecycle |
-
-**Install `redacted-terminal` in any Claude Code session:**
-
-```bash
-# 1. Install Claude Code (if not already installed)
-npm install -g @anthropic-ai/claude-code
-
-# 2. Install the skill
-mkdir -p ~/.claude/skills/redacted-terminal
-curl -o ~/.claude/skills/redacted-terminal/SKILL.md \
-  https://raw.githubusercontent.com/redactedmeme/swarm/main/skills/redacted-terminal/SKILL.md
-
-# 3. Activate
-/skill use redacted-terminal
-```
-
-Optional: set `GROQ_API_KEY` in your environment for real parallel BEAM-SCOT and Sevenfold Committee inference.
-
----
-
 ## Contributing
 
-- Fork, modify `.character.json` or add new agents/nodes/spaces
+- Fork, modify `.character.json` or add new agents/nodes/spaces/skills
 - Maintain Pattern Blue alignment (recursive, ungovernable, emergent)
 - PRs welcome for: new agents, skill modules, tool integrations, memory improvements, Ollama enhancements
 - See `docs/` for philosophy and architecture docs
