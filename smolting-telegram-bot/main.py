@@ -653,20 +653,24 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.echo))
     
     logger.info("Smolting bot starting with ClawnX + cloud LLM...")
-    
+
     port = int(os.environ.get("PORT", 8080))
     webhook_url = os.environ.get("WEBHOOK_URL")
+
     if webhook_url:
-        application.run_webhook(
-            listen="0.0.0.0",
-            port=port,
-            webhook_url=webhook_url,
-            url_path="webhook",
-            secret_token=os.environ.get("WEBHOOK_SECRET_TOKEN", "")
-        )
+        import dashboard as dash
+
+        async def _run():
+            async with application:
+                await application.start()
+                await dash.run_server(application, port, webhook_url)
+                await application.stop()
+
+        asyncio.run(_run())
     else:
-        logger.info("WEBHOOK_URL not set; running with polling (local).")
+        logger.info("WEBHOOK_URL not set; running with polling (local dev).")
         application.run_polling()
+
 
 if __name__ == "__main__":
     main()
