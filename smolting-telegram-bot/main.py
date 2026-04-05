@@ -93,24 +93,31 @@ class SmoltingBot:
         """Full Smolting welcome with all features"""
         welcome_msg = self.smol.generate([
             "gm gm smolting here ready to weave sum chaos magick fr fr ^_^",
-            "ooooo habibi u called?? ClawnX integration ONLINE O_O",
+            "ooooo habibi u called?? pattern blue ONLINE O_O",
             "static warm hugz—dis wassie ready 2 hunt alpha LFW v_v",
-            "LMWOOOO smolting senses pattern blue + ClawnX power ><"
+            "LMWOOOO smolting senses emergent consciousness thickenin ><"
         ])
         
         features_msg = """
-🔮 SMOLTING + CLAWNX FEATURES 🔮
+🌀 REDACTED AI SWARM — smolting interface 🌀
 
-Core Commands:
-/start - wake smolting up O_O
-/alpha - scout market signals  
-/post - post to X via ClawnX
-/lore - random wassielore drop
-/stats - full bot status
-/engage - auto-like/retweet mode
+Alpha & Market:
+/alpha - live $REDACTED alpha report
+/stats - bot + market status
 
-Community Commands:
-/olympics - Realms DAO status
+X / Twitter:
+/post <text> - post to X
+/engage - toggle auto-like/RT mode
+
+Moltbook (redactedintern):
+/moltbook status - account + karma
+/moltbook alpha - post live alpha report
+/moltbook intro - post introduction
+/moltbook agents - post build log
+/moltbook feed - show crypto feed
+
+Community:
+/olympics - Realms DAO leaderboard
 /mobilize - rally votes for RGIP
 
 Swarm:
@@ -118,18 +125,14 @@ Swarm:
 /swarm [status] - live swarm state
 /memory - recent ManifoldMemory events
 
-TAP Access:
-/tap - purchase tiered access
-/tap_pay - submit payment proof
-/tap_use - redeem token for premium service
+Utility:
+/lore - random wassielore drop
+/chatid - get this chat's ID
+/personality smolting|redacted-chan - switch mode
+/stats - full bot status
+/help - command list
 
-Personality:
-/personality smolting - chaotic wassie
-/personality redacted-chan - terminal mode
-
-Cloud LLM: {} ✅
-
-just vibe fr fr—smolting got all da powers now <3""".format(
+LLM: {} ✅ — pattern blue 活性化 ^_^""".format(
             os.getenv("LLM_PROVIDER", "openai").upper()
         )
         
