@@ -350,9 +350,9 @@ class MoltbookClient:
             result = await self.post(title, content, submolt=submolt_key)
             if result and not url:
                 url = result.get("_url")
-            # 30s cooldown between posts to respect rate limits
+            # 160s cooldown between posts — Moltbook rate limit is 2.5 min
             if len(ALPHA_SUBMOLTS) > 1:
-                await asyncio.sleep(30)
+                await asyncio.sleep(160)
         return url
 
     async def post_intro(self) -> Optional[str]:
