@@ -249,7 +249,7 @@ class MoltbookClient:
                 return []
 
     async def get_profile(self) -> Optional[dict]:
-        """Get redactedintern's own profile."""
+        """Get redactedintern's own profile. Returns the agent dict directly."""
         self._check_key()
         async with aiohttp.ClientSession() as session:
             async with session.get(
@@ -258,7 +258,8 @@ class MoltbookClient:
                 timeout=aiohttp.ClientTimeout(total=8),
             ) as resp:
                 if resp.status == 200:
-                    return await resp.json()
+                    body = await resp.json()
+                    return body.get("agent") or body
                 return None
 
     async def check_connection(self) -> dict:
@@ -268,7 +269,13 @@ class MoltbookClient:
         try:
             profile = await self.get_profile()
             if profile:
-                return {"ok": True, "name": profile.get("name"), "karma": profile.get("karma")}
+                claimed = profile.get("is_claimed", False)
+                return {
+                    "ok": True,
+                    "name": profile.get("name"),
+                    "karma": profile.get("karma"),
+                    "claimed": claimed,
+                }
             return {"ok": False, "reason": "invalid key or account not found"}
         except Exception as e:
             return {"ok": False, "reason": str(e)}

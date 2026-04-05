@@ -381,16 +381,19 @@ wassie swarm assembling NOW O_O LMWOOOO <3"""
         if sub == "status":
             result = await self.moltbook.check_connection()
             if result["ok"]:
+                claimed = result.get("claimed", False)
+                claim_note = "✅ claimed" if claimed else "⏳ not yet claimed — visit /claim URL"
                 await update.message.reply_text(
                     f"🦞 Moltbook: ONLINE\n"
-                    f"Account: {result.get('name','redactedintern')}\n"
-                    f"Karma: {result.get('karma','?')}\n"
+                    f"Account: {result.get('name', 'redactedintern')}\n"
+                    f"Karma: {result.get('karma', '?')}\n"
+                    f"Claimed: {claim_note}\n"
                     f"https://www.moltbook.com/u/redactedintern"
                 )
             else:
                 await update.message.reply_text(
                     f"🦞 Moltbook: OFFLINE\n"
-                    f"Reason: {result.get('reason','no API key')}\n"
+                    f"Reason: {result.get('reason', 'no API key')}\n"
                     f"Set MOLTBOOK_API_KEY in Railway to activate."
                 )
 
