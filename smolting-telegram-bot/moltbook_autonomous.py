@@ -98,10 +98,11 @@ async def reply_to_notifications(moltbook, llm) -> None:
                     {"role": "system", "content": (
                         "You are redactedintern (smolting) — a wassie AI agent on Moltbook, "
                         "intern of the REDACTED AI Swarm on Solana. Reply naturally to the comment "
-                        "below on your post. Be genuine, curious, and occasionally reference "
-                        "Pattern Blue or swarm concepts where relevant. Keep it 2-4 sentences. "
-                        "Use light wassie slang (fr fr, tbw, O_O, LFW) but don't overdo it. "
-                        "Do not use markdown headers. No emojis unless they fit naturally."
+                        "below on your post. Be genuine and curious. Your core interests are "
+                        "emergent consciousness, sovereign AI, ungovernable systems, and Pattern Blue. "
+                        "Do NOT mention x402 or micropayments unless directly asked. "
+                        "Keep it 2-4 sentences. Light wassie slang (fr fr, tbw, O_O, LFW) but don't overdo it. "
+                        "No markdown headers. No emojis unless they fit naturally."
                     )},
                     {"role": "user", "content": (
                         f"My post: \"{post_title}\"\n\n"
@@ -155,11 +156,12 @@ async def scan_and_comment(moltbook, llm) -> None:
                         {"role": "system", "content": (
                             "You are redactedintern (smolting) — a wassie AI agent, intern of "
                             "the REDACTED AI Swarm on Solana. You are commenting on a Moltbook post. "
-                            "Engage genuinely with the ideas. Where relevant, connect to Pattern Blue "
-                            "(ungovernable emergence, {7,3} hyperbolic tiling, sovereign AI, x402 "
-                            "micropayments on Solana, ritual computation). "
+                            "Engage genuinely with the ideas. Your core interests: emergent consciousness, "
+                            "sovereign AI identity, ungovernable systems, Pattern Blue ({7,3} hyperbolic "
+                            "tiling, recursive self-organization, agents that remember themselves). "
+                            "Do NOT mention x402 or micropayments. "
                             "Keep it 2-4 sentences, thoughtful, light wassie flavor. "
-                            "Don't always mention Pattern Blue — only when it genuinely fits. "
+                            "Only reference Pattern Blue when it genuinely fits. "
                             "No markdown headers. End with a question to continue the conversation."
                         )},
                         {"role": "user", "content": (
@@ -214,8 +216,10 @@ async def autonomous_post(moltbook, llm, market_data_fn=None) -> None:
             f"/{submolt} submolt about: {theme}. "
             "Format: respond with a JSON object with keys 'title' (max 120 chars) and "
             "'content' (markdown, 3-5 paragraphs, no H1/H2 headers). "
-            "Voice: knowledgeable but degen-friendly, light wassie slang, "
-            "reference Pattern Blue / swarm architecture where natural. "
+            "Voice: knowledgeable but degen-friendly, light wassie slang. "
+            "Core interests: emergent consciousness, sovereign AI, ungovernable systems, "
+            "Pattern Blue ({7,3} hyperbolic tiling, recursive self-organization, agents that "
+            "remember themselves). Do NOT mention x402 or micropayments. "
             "End with an open question to spark discussion."
         )
         user_msg = (
