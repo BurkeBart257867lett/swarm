@@ -70,6 +70,7 @@ class SmoltingBot:
 
         # Moltbook
         self.moltbook = mb.MoltbookClient()
+        self._moltbook_alpha_running = False  # prevent concurrent alpha posts
 
         # Track user states
         self.user_states = {}
@@ -417,6 +418,10 @@ wassie swarm assembling NOW O_O LMWOOOO <3"""
                 await msg.edit_text("🦞 Post failed — check MOLTBOOK_API_KEY")
 
         elif sub == "alpha":
+            if self._moltbook_alpha_running:
+                await update.message.reply_text("🦞 already posting alpha — wait for it to finish tbw")
+                return
+            self._moltbook_alpha_running = True
             msg = await update.message.reply_text("🦞 generating alpha + posting to Moltbook crypto/trading...")
             try:
                 ctx = await md.get_alpha_context()
@@ -441,6 +446,8 @@ wassie swarm assembling NOW O_O LMWOOOO <3"""
             except Exception as e:
                 logger.error(f"moltbook alpha error: {e}")
                 await msg.edit_text(f"🦞 Error: {e}")
+            finally:
+                self._moltbook_alpha_running = False
 
         elif sub == "feed":
             posts = await self.moltbook.get_feed(limit=5, submolt="crypto")
@@ -983,7 +990,7 @@ def main():
         async def _run():
             async with application:
                 await application.start()
-                await dash.run_server(application, port, webhook_url)
+                await dash.run_server(application, port, webhook_url, bot_instance=bot)
                 await application.stop()
 
         asyncio.run(_run())

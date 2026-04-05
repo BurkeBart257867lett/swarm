@@ -184,6 +184,33 @@ class MoltbookClient:
             logger.warning(f"Challenge submit error: {e}")
             return None
 
+    async def _llm_solve_challenge(self, challenge: dict) -> Optional[str]:
+        """LLM fallback for heavily-obfuscated challenges the regex solver can't parse."""
+        try:
+            from llm.cloud_client import CloudLLMClient
+            llm = CloudLLMClient()
+            expr_raw = (
+                challenge.get("challenge_text") or challenge.get("expression")
+                or challenge.get("problem") or challenge.get("question") or ""
+            )
+            instructions = challenge.get("instructions", "")
+            raw = await llm.chat_completion([
+                {"role": "system", "content": (
+                    "Solve the obfuscated math problem. The text uses mixed case, "
+                    "spaces between letters, and letter substitutions (e.g. 'v'→'f'). "
+                    "Decode the words, extract the numbers, perform the operation. "
+                    "Return ONLY the numeric answer with exactly 2 decimal places (e.g. '55.00'). "
+                    "No other text."
+                )},
+                {"role": "user", "content": f"{expr_raw}\n\n{instructions}".strip()},
+            ])
+            m = re.search(r'\d+(?:\.\d+)?', raw.strip())
+            if m:
+                return f"{float(m.group()):.2f}"
+        except Exception as e:
+            logger.warning(f"LLM challenge fallback error: {e}")
+        return None
+
     async def _resolve_verification(self, session: aiohttp.ClientSession,
                                      post_body: dict = None) -> Optional[str]:
         """Solve verification challenge embedded in post response or fetched separately."""
@@ -197,6 +224,9 @@ class MoltbookClient:
             or challenge.get("challenge_id")
         )
         answer = self._solve_challenge(challenge)
+        if answer is None:
+            logger.info("Moltbook: regex solver failed — trying LLM fallback")
+            answer = await self._llm_solve_challenge(challenge)
         if not (challenge_id and answer):
             return None
         token = await self._submit_challenge(session, challenge_id, answer)
