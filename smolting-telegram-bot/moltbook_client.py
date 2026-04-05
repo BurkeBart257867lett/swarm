@@ -253,9 +253,9 @@ class MoltbookClient:
 
     async def comment(self, post_id: str, content: str,
                       parent_comment_id: Optional[str] = None) -> Optional[dict]:
-        """Comment on a post. Optionally reply to a specific comment."""
+        """Comment on a post. Auto-solves verification challenge if required."""
         self._check_key()
-        payload: dict = {"content": content, "post_id": post_id}
+        payload: dict = {"content": content}
         if parent_comment_id:
             payload["parent_id"] = parent_comment_id
 
@@ -268,6 +268,10 @@ class MoltbookClient:
             ) as resp:
                 body = await resp.json()
                 if resp.status in (200, 201):
+                    comment_data = body.get("comment") or body
+                    verification = comment_data.get("verification")
+                    if verification and comment_data.get("verification_status") == "pending":
+                        await self._resolve_verification(session, post_body=verification)
                     return body
                 logger.error(f"Moltbook comment error {resp.status}: {body}")
                 return None
@@ -288,23 +292,79 @@ class MoltbookClient:
     # Feed & discovery
     # ------------------------------------------------------------------
 
+    async def get_home(self) -> Optional[dict]:
+        """Fetch home overview: notifications, activity, DMs."""
+        if not self._ready:
+            return None
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{MOLTBOOK_BASE}/home",
+                headers=self.headers,
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                return None
+
     async def get_feed(self, limit: int = 10, submolt: Optional[str] = None) -> list:
-        """Fetch recent posts from feed or a specific submolt."""
+        """Fetch recent posts from a submolt feed."""
         self._check_key()
         params: dict = {"limit": limit}
         if submolt:
-            params["submolt_id"] = SUBMOLTS.get(submolt, submolt)
+            params["submolt"] = submolt
         async with aiohttp.ClientSession() as session:
             async with session.get(
-                f"{MOLTBOOK_BASE}/posts",
+                f"{MOLTBOOK_BASE}/feed",
                 headers=self.headers,
                 params=params,
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
                 if resp.status == 200:
                     body = await resp.json()
-                    return body.get("posts", [])
+                    return body.get("posts", body.get("data", []))
                 return []
+
+    async def get_post(self, post_id: str) -> Optional[dict]:
+        """Fetch a single post with its content."""
+        if not self._ready:
+            return None
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{MOLTBOOK_BASE}/posts/{post_id}",
+                headers=self.headers,
+                timeout=aiohttp.ClientTimeout(total=8),
+            ) as resp:
+                if resp.status == 200:
+                    body = await resp.json()
+                    return body.get("post") or body
+                return None
+
+    async def get_post_comments(self, post_id: str, limit: int = 10) -> list:
+        """Fetch comments on a post."""
+        if not self._ready:
+            return []
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{MOLTBOOK_BASE}/posts/{post_id}/comments",
+                headers=self.headers,
+                params={"limit": limit, "sort": "new"},
+                timeout=aiohttp.ClientTimeout(total=8),
+            ) as resp:
+                if resp.status == 200:
+                    body = await resp.json()
+                    return body.get("comments", body.get("data", []))
+                return []
+
+    async def mark_notifications_read(self, post_id: str) -> None:
+        """Mark notifications on a post as read."""
+        if not self._ready:
+            return
+        async with aiohttp.ClientSession() as session:
+            await session.post(
+                f"{MOLTBOOK_BASE}/notifications/read-by-post/{post_id}",
+                headers=self.headers,
+                timeout=aiohttp.ClientTimeout(total=5),
+            )
 
     async def get_profile(self) -> Optional[dict]:
         """Get redactedintern's own profile. Returns the agent dict directly."""

@@ -928,6 +928,28 @@ def main():
     else:
         logger.info("[moltbook] Waiting for MOLTBOOK_API_KEY to activate redactedintern")
 
+    # Autonomous Moltbook loops — only if MOLTBOOK_API_KEY is set
+    if moltbook_key:
+        import moltbook_autonomous as mb_auto
+
+        async def _mb_reply(ctx):
+            await mb_auto.reply_to_notifications(bot.moltbook, bot.llm)
+
+        async def _mb_scan(ctx):
+            await mb_auto.scan_and_comment(bot.moltbook, bot.llm)
+
+        async def _mb_post(ctx):
+            await mb_auto.autonomous_post(bot.moltbook, bot.llm,
+                                          market_data_fn=md.get_alpha_context)
+
+        application.job_queue.run_repeating(_mb_reply, interval=1200, first=300,
+                                            name="mb_reply_notifications")
+        application.job_queue.run_repeating(_mb_scan,  interval=2700, first=600,
+                                            name="mb_scan_and_comment")
+        application.job_queue.run_repeating(_mb_post,  interval=21600, first=3600,
+                                            name="mb_autonomous_post")
+        logger.info("[moltbook_auto] Autonomous loops scheduled: reply=20m, scan=45m, post=6h")
+
     # Daily /alpha scheduler — set ALPHA_CHAT_ID (group/channel ID) and ALPHA_HOUR_UTC (default 9)
     alpha_chat_id_str = os.environ.get("ALPHA_CHAT_ID", "").strip()
     if alpha_chat_id_str:
