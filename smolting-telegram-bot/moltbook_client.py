@@ -141,8 +141,19 @@ class MoltbookClient:
                 logger.warning(f"Could not parse challenge: {expr_raw!r}")
                 return None
 
-            # Sum all numbers found (Moltbook challenges are always addition so far)
-            result = sum(numbers)
+            # Detect operator: multiplication if * / "times" / "multiplied by" present
+            is_multiply = bool(re.search(r'\*|times|multiplied by|x \d', text))
+            is_subtract = bool(re.search(r'\bminus\b|\bsubtract\b', text))
+            if is_multiply and len(numbers) >= 2:
+                result = numbers[0]
+                for n in numbers[1:]:
+                    result *= n
+            elif is_subtract and len(numbers) >= 2:
+                result = numbers[0]
+                for n in numbers[1:]:
+                    result -= n
+            else:
+                result = sum(numbers)
             return f"{result:.2f}"
         except Exception as e:
             logger.error(f"Challenge solve error: {e} | raw={challenge}")
@@ -250,7 +261,7 @@ class MoltbookClient:
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f"{MOLTBOOK_BASE}/comments",
+                f"{MOLTBOOK_BASE}/posts/{post_id}/comments",
                 headers=self.headers,
                 json=payload,
                 timeout=aiohttp.ClientTimeout(total=10),
