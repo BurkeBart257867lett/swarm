@@ -17,6 +17,11 @@ logger = logging.getLogger(__name__)
 
 MOLTBOOK_BASE = "https://www.moltbook.com/api/v1"
 
+# Global rate limit lock — prevents concurrent posts from hammering the 2.5 min limit
+_post_lock = asyncio.Lock()
+_last_post_ts: float = 0.0
+RATE_LIMIT_SECS = 155  # 2.5 min + 5s buffer
+
 # Submolt IDs (fetched 2026-04-05)
 SUBMOLTS = {
     "introductions": "6f095e83-af5f-4b4e-ba0b-ab5050a138b8",
@@ -212,43 +217,58 @@ class MoltbookClient:
         self._check_key()
         submolt_id = SUBMOLTS.get(submolt, submolt)  # accept key or raw UUID
 
-        async with aiohttp.ClientSession() as session:
-            # Try posting; if challenge required, solve and retry
-            for attempt in range(2):
-                payload: dict = {
-                    "title": title,
-                    "content": content,
-                    "submolt": submolt,  # API expects submolt name, not UUID
-                    "type": post_type,
-                }
-                async with session.post(
-                    f"{MOLTBOOK_BASE}/posts",
-                    headers=self.headers,
-                    json=payload,
-                    timeout=aiohttp.ClientTimeout(total=15),
-                ) as resp:
-                    body = await resp.json()
-                    if resp.status in (200, 201):
-                        post_data = body.get("post") or body
-                        post_id = post_data.get("id", "?")
-                        url = f"https://www.moltbook.com/post/{post_id}"
-                        logger.info(f"Moltbook post created: {url}")
-                        # Auto-solve embedded verification challenge if present
-                        verification = post_data.get("verification")
-                        if verification and post_data.get("verification_status") == "pending":
-                            logger.info("Moltbook: solving embedded verification challenge...")
-                            await self._resolve_verification(session, post_body=verification)
-                        return {**body, "_url": url}
+        global _last_post_ts
+        async with _post_lock:
+            # Enforce rate limit — wait if last post was too recent
+            import time
+            elapsed = time.monotonic() - _last_post_ts
+            if elapsed < RATE_LIMIT_SECS and _last_post_ts > 0:
+                wait = RATE_LIMIT_SECS - elapsed
+                logger.info(f"Moltbook: rate limit wait {wait:.0f}s before posting")
+                await asyncio.sleep(wait)
 
-                    # Challenge required (403 flow)
-                    if resp.status == 403 and "challenge" in str(body).lower() and attempt == 0:
-                        logger.info("Moltbook: challenge required, solving...")
-                        token = await self._resolve_verification(session)
-                        if token:
+            async with aiohttp.ClientSession() as session:
+                # Try posting; if challenge required or 429, retry once
+                for attempt in range(2):
+                    payload: dict = {
+                        "title": title,
+                        "content": content,
+                        "submolt": submolt,
+                        "type": post_type,
+                    }
+                    async with session.post(
+                        f"{MOLTBOOK_BASE}/posts",
+                        headers=self.headers,
+                        json=payload,
+                        timeout=aiohttp.ClientTimeout(total=15),
+                    ) as resp:
+                        body = await resp.json()
+                        if resp.status in (200, 201):
+                            _last_post_ts = time.monotonic()
+                            post_data = body.get("post") or body
+                            post_id = post_data.get("id", "?")
+                            url = f"https://www.moltbook.com/post/{post_id}"
+                            logger.info(f"Moltbook post created: {url}")
+                            verification = post_data.get("verification")
+                            if verification and post_data.get("verification_status") == "pending":
+                                logger.info("Moltbook: solving embedded verification challenge...")
+                                await self._resolve_verification(session, post_body=verification)
+                            return {**body, "_url": url}
+
+                        if resp.status == 429 and attempt == 0:
+                            retry_after = body.get("retry_after_seconds", RATE_LIMIT_SECS)
+                            logger.warning(f"Moltbook 429 — waiting {retry_after}s")
+                            await asyncio.sleep(retry_after + 2)
                             continue
 
-                    logger.error(f"Moltbook post error {resp.status}: {body}")
-                    return None
+                        if resp.status == 403 and "challenge" in str(body).lower() and attempt == 0:
+                            logger.info("Moltbook: challenge required, solving...")
+                            token = await self._resolve_verification(session)
+                            if token:
+                                continue
+
+                        logger.error(f"Moltbook post error {resp.status}: {body}")
+                        return None
         return None
 
     async def comment(self, post_id: str, content: str,
