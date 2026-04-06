@@ -37,6 +37,7 @@ from htc_commands import HTCCommands
 from nlp.intent_classifier import IntentClassifier, CommMode, load_vault_entities
 from clawbal_client import ClawbalClient
 import soul_manager
+import wallet as sol_wallet
 
 import sys
 
@@ -1315,6 +1316,44 @@ swarm@[REDACTED]:~$ _"""
             parse_mode="Markdown",
         )
 
+    async def wallet_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Show smolting's Solana wallet — address, SOL balance, $REDACTED balance."""
+        msg = await update.message.reply_text("checkin da wallet... O_O")
+        try:
+            summary = await sol_wallet.get_wallet_summary()
+            if not summary["ready"]:
+                await msg.edit_text(
+                    "wallet not configured — SOLANA_PRIVATE_KEY not set tbw"
+                )
+                return
+
+            address = summary["address"]
+            sol = summary["sol_balance"]
+            redacted = summary["redacted_balance"]
+
+            sol_line = f"{sol:.4f} SOL" if sol is not None else "? SOL"
+            if redacted is not None:
+                if redacted >= 1_000_000:
+                    redacted_line = f"{redacted/1_000_000:.2f}M $REDACTED"
+                elif redacted >= 1_000:
+                    redacted_line = f"{redacted/1_000:.2f}K $REDACTED"
+                else:
+                    redacted_line = f"{redacted:.2f} $REDACTED"
+            else:
+                redacted_line = "? $REDACTED"
+
+            text = (
+                "🔑 SMOLTING WALLET\n\n"
+                f"`{address}`\n\n"
+                f"SOL: {sol_line}\n"
+                f"$REDACTED: {redacted_line}\n\n"
+                f"[view on Solscan](https://solscan.io/account/{address})"
+            )
+            await msg.edit_text(text, parse_mode="Markdown")
+        except Exception as e:
+            logger.error(f"wallet_command error: {e}")
+            await msg.edit_text("wallet fetch failed — check logs O_O")
+
 
 async def auto_engage(context: ContextTypes.DEFAULT_TYPE):
     """Enhanced auto-engagement with cloud intelligence. context.job.data = (user_id, bot)."""
@@ -1511,6 +1550,7 @@ def main():
     application.add_handler(CommandHandler("htc", bot.htc.handle))
     application.add_handler(CommandHandler("clawbal", bot.clawbal_command))
     application.add_handler(CommandHandler("soul", bot.soul_command))
+    application.add_handler(CommandHandler("wallet", bot.wallet_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.echo))
 
     # Init LoreVault DB on startup (creates tables + seeds if empty)
