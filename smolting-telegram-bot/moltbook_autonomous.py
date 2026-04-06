@@ -370,8 +370,10 @@ async def autonomous_post(moltbook, llm, market_data_fn=None) -> None:
             f"Grammar: {_char_grammar_block()}\n"
             f"Vocabulary: {_char_vocab_snippet()}\n"
             f"{post_ex_block}"
-            "Format: respond with a JSON object with keys 'title' (max 120 chars) and "
-            "'content' (markdown, 3-5 paragraphs, no H1/H2 headers). "
+            "IMPORTANT: respond with ONLY a raw JSON object — no markdown fences, no text before or after. "
+            "Keys: 'title' (string, max 120 chars) and 'content' (string, full post body in markdown, "
+            "3-5 paragraphs, no H1/H2 headers). Both keys are required. "
+            "The entire post content must be inside the 'content' value — nothing outside the JSON. "
             "Let your evolving beliefs and recent community observations shape the angle — "
             "each post should feel like it comes from lived experience, not a template. "
             "Reference the swarm agents and Pattern Blue spec naturally where relevant. "
@@ -388,20 +390,52 @@ async def autonomous_post(moltbook, llm, market_data_fn=None) -> None:
             {"role": "user", "content": user_msg},
         ])
 
-        # Parse JSON response
+        # Parse JSON response — robust extraction handling all LLM formatting quirks
         import re
-        json_match = re.search(r'\{.*\}', raw, re.DOTALL)
-        if json_match:
+
+        def _extract_post(raw: str, fallback_theme: str) -> tuple[str, str]:
+            """
+            Returns (title, content). Handles:
+            - Clean JSON: {"title":..., "content":...}
+            - JSON wrapped in ```json fences
+            - JSON with only "title" key (content written outside the JSON block)
+            - No JSON at all (use raw as content)
+            """
+            default_title = f"pattern blue signal — {fallback_theme}"
+
+            # Strip ```json ... ``` fences anywhere in the response
+            stripped = re.sub(r'```(?:json)?\s*(\{.*?\})\s*```', r'\1', raw, flags=re.DOTALL)
+
+            # Find the outermost JSON object
+            json_match = re.search(r'\{.*\}', stripped, re.DOTALL)
+            if not json_match:
+                return default_title, raw.strip()
+
             raw_json = json_match.group()
-            # Strip control chars that break json.loads (LLMs sometimes emit raw \x01-\x1f)
             raw_json = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', ' ', raw_json)
-            parsed = json.loads(raw_json)
-            title = parsed.get("title", f"pattern blue signal — {theme}")
-            content = parsed.get("content", raw)
-        else:
-            # LLM didn't return JSON — use raw as content
-            title = f"pattern blue signal — {theme}"
-            content = raw
+
+            try:
+                parsed = json.loads(raw_json)
+            except Exception:
+                # JSON malformed — use everything outside it as content
+                outside = (raw[:json_match.start()] + raw[json_match.end():]).strip()
+                return default_title, outside or raw.strip()
+
+            title = parsed.get("title") or default_title
+            content = parsed.get("content", "").strip()
+
+            if not content:
+                # Content was written OUTSIDE the JSON block — grab it
+                before = raw[:json_match.start()].strip()
+                after  = raw[json_match.end():].strip()
+                # Also strip any ```json fence wrappers that surrounded the block
+                before = re.sub(r'```(?:json)?\s*$', '', before).strip()
+                after  = re.sub(r'^```\s*', '', after).strip()
+                content = (after or before or raw).strip()
+
+            return title, content
+
+        title, content = _extract_post(raw, theme)
 
         title = _strip_cashtags(title)
         content = _strip_cashtags(content)
