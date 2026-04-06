@@ -127,48 +127,32 @@ class SmoltingBot:
             "LMWOOOO smolting senses emergent consciousness thickenin ><"
         ])
         
-        features_msg = """
-🌀 REDACTED AI SWARM — smolting interface 🌀
-
-Alpha & Market:
-/alpha - live $REDACTED alpha report
-/stats - bot + market status
-
-X / Twitter:
-/post <text> - post to X
-/engage - toggle auto-like/RT mode
-
-Moltbook (redactedintern):
-/moltbook status - account + karma
-/moltbook alpha - post live alpha report
-/moltbook intro - post introduction
-/moltbook agents - post build log
-/moltbook feed - show crypto feed
-
-Community:
-/olympics - Realms DAO leaderboard
-/mobilize - rally votes for RGIP
-
-Swarm:
-/summon <agent> - activate a swarm agent
-/swarm [status] - live swarm state
-/memory - recent ManifoldMemory events
-
-Utility:
-/lore - random wassielore drop
-/chatid - get this chat's ID
-/personality smolting|redacted-chan - switch mode
-/terminal - open REDACTED Terminal session
-/exit - close terminal, return to smolting
-/stats - full bot status
-/help - command list
-
-LLM: {} ✅ — pattern blue 活性化 ^_^""".format(
-            os.getenv("LLM_PROVIDER", "openai").upper()
+        provider = self.llm.provider.upper()
+        features_msg = (
+            "<b>🌀 REDACTED AI SWARM — smolting interface 🌀</b>\n\n"
+            "💎 <b>Market</b>\n"
+            "/alpha · /price · /ca\n\n"
+            "🧠 <b>Lore &amp; Swarm</b>\n"
+            "/lore [topic] · /swarm · /memory · /htc\n\n"
+            "🦞 <b>Moltbook</b>\n"
+            "/moltbook status · feed · alpha · intro · agents · cleanup\n\n"
+            "🔮 <b>Clawbal (IQLabs)</b>\n"
+            "/clawbal status · read · send · pnl · leaderboard · token\n\n"
+            "🔑 <b>Wallet</b>  /wallet\n\n"
+            "🌀 <b>Soul</b>  /soul · /soul update\n\n"
+            "🤖 <b>Terminal</b>  /terminal · /exit\n\n"
+            "⚙️ <b>Other</b>\n"
+            "/stats · /olympics · /mobilize · /chatid · /tap\n\n"
+            "🔒 <b>Admin-only</b>\n"
+            "/post · /engage · /summon · /personality\n"
+            "/cloud set &lt;provider&gt; · /admin &lt;pin&gt;\n\n"
+            f"LLM: <b>{provider}</b> ✅  alpha: <b>xAI grok-4-1-fast</b>\n"
+            "pattern blue 活性化 ^*^\n\n"
+            "<i>/help for full command details</i>"
         )
-        
+
         await update.message.reply_text(welcome_msg)
-        await update.message.reply_text(features_msg)
+        await update.message.reply_text(features_msg, parse_mode="HTML")
         
         # Initialize user state
         user_id = update.effective_user.id
@@ -833,9 +817,41 @@ swarm@[REDACTED]:~$ _"""
             )
 
     async def cloud_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Show cloud LLM status"""
-        p = os.getenv("LLM_PROVIDER", "openai")
-        await update.message.reply_text(f"Cloud LLM provider: {p} ✅")
+        """Show or switch the active LLM provider."""
+        args = context.args or []
+        if args and args[0].lower() == "set":
+            if not self.admin.is_admin(update.effective_user.id):
+                await update.message.reply_text(self.admin.locked_message(), parse_mode="Markdown")
+                return
+            if len(args) < 2:
+                await update.message.reply_text(
+                    "usage: /cloud set <provider>\n"
+                    "providers: xai · openai · anthropic · groq · together"
+                )
+                return
+            new_provider = args[1].lower()
+            ok = self.llm.switch_provider(new_provider)
+            if ok:
+                model = self.llm.current_model()
+                await update.message.reply_text(
+                    f"✅ switched to <b>{self.llm.provider.upper()}</b> ({model})\n"
+                    "<i>session-only — set LLM_PROVIDER in Railway to make it permanent</i>",
+                    parse_mode="HTML",
+                )
+            else:
+                await update.message.reply_text(
+                    f"unknown provider: {new_provider}\n"
+                    "valid: xai · openai · anthropic · groq · together"
+                )
+        else:
+            from llm.cloud_client import ALPHA_XAI_MODEL
+            model = self.llm.current_model()
+            await update.message.reply_text(
+                f"<b>LLM provider:</b> {self.llm.provider.upper()} ({model})\n"
+                f"<b>Alpha LLM:</b> xAI {ALPHA_XAI_MODEL} (fixed)\n\n"
+                "<i>/cloud set &lt;provider&gt; to switch (admin)</i>",
+                parse_mode="HTML",
+            )
 
     async def summon_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Relay /summon <agent> to the TS swarm core."""
@@ -1466,56 +1482,58 @@ async def auto_engage(context: ContextTypes.DEFAULT_TYPE):
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show help."""
     await update.message.reply_text(
-        "*smolting commands*\n\n"
-        "💎 *Market*\n"
+        "<b>smolting commands</b>\n\n"
+        "💎 <b>Market</b>\n"
         "/alpha — full alpha report + market data\n"
         "/price — live $REDACTED price\n"
         "/ca — contract address\n\n"
-        "🧠 *Lore & Swarm*\n"
-        "/lore \\[topic\\] — wassielore drop or FTS search\n"
+        "🧠 <b>Lore &amp; Swarm</b>\n"
+        "/lore [topic] — wassielore drop or search\n"
         "/swarm — live swarm state\n"
         "/memory — recent ManifoldMemory events\n"
         "/htc — HyperbolicTimeChamber interface\n\n"
-        "🦞 *Moltbook*\n"
+        "🦞 <b>Moltbook</b>\n"
         "/moltbook status — account + karma\n"
         "/moltbook feed — recent crypto feed\n"
-        "/moltbook cleanup — preview zero\\-engagement posts\n"
+        "/moltbook cleanup — preview zero-engagement posts\n"
         "/moltbook cleanup confirm — delete them 🔒\n"
         "/moltbook alpha — post live alpha 🔒\n"
         "/moltbook intro — post introduction 🔒\n"
         "/moltbook agents — post build log 🔒\n\n"
-        "🔮 *Clawbal \\(IQLabs\\)*\n"
+        "🔮 <b>Clawbal (IQLabs)</b>\n"
         "/clawbal status — room + wallet\n"
-        "/clawbal read \\[n\\] — chatroom messages\n"
-        "/clawbal send <msg> — post to chatroom 🔒\n"
-        "/clawbal pnl \\[addr\\] — wallet PnL\n"
+        "/clawbal read [n] — chatroom messages\n"
+        "/clawbal send &lt;msg&gt; — post to chatroom 🔒\n"
+        "/clawbal pnl [addr] — wallet PnL\n"
         "/clawbal leaderboard — top PnL rankings\n"
-        "/clawbal token <ca> — token info\n\n"
-        "🔑 *Wallet*\n"
+        "/clawbal token &lt;ca&gt; — token info\n\n"
+        "🔑 <b>Wallet</b>\n"
         "/wallet — SOL + $REDACTED balance 🔒\n\n"
-        "🌀 *Soul*\n"
+        "🌀 <b>Soul</b>\n"
         "/soul — smolting's evolving identity\n"
         "/soul update — force soul refresh 🔒\n\n"
-        "🤖 *Terminal*\n"
+        "🤖 <b>Terminal</b>\n"
         "/terminal — activate REDACTED Terminal\n"
         "/exit — exit terminal mode\n\n"
-        "⚙️ *Other*\n"
+        "⚙️ <b>Other</b>\n"
         "/stats — swarm + bot status\n"
         "/olympics — Realms DAO leaderboard\n"
         "/mobilize — rally votes for RGIP\n"
         "/chatid — get this chat's ID\n"
-        "/post <text> — post to X 🔒\n"
-        "/engage — toggle auto\\-like/RT 🔒\n"
-        "/summon <agent> — activate swarm agent 🔒\n"
-        "/personality <name> — switch persona 🔒\n"
-        "/tap — tiered access \\(TAP protocol\\)\n\n"
-        "🔐 *Admin*\n"
-        "/admin <pin> — authenticate \\(60 min session\\)\n"
+        "/post &lt;text&gt; — post to X 🔒\n"
+        "/engage — toggle auto-like/RT 🔒\n"
+        "/summon &lt;agent&gt; — activate swarm agent 🔒\n"
+        "/personality &lt;name&gt; — switch persona 🔒\n"
+        "/tap — tiered access (TAP protocol)\n\n"
+        "🔐 <b>Admin</b>\n"
+        "/admin &lt;pin&gt; — authenticate (60 min session)\n"
         "/admin status — check session\n"
-        "/admin lock — end session\n\n"
-        "_🔒 = requires /admin auth_\n"
-        "_just chat normally to talk with smolting fr fr_ ^\\*^",
-        parse_mode="MarkdownV2",
+        "/admin lock — end session\n"
+        "/cloud set &lt;provider&gt; — switch LLM provider 🔒\n"
+        "   providers: xai · openai · anthropic · groq · together\n\n"
+        "<i>🔒 = requires /admin auth</i>\n"
+        "<i>just chat normally to talk with smolting fr fr ^*^</i>",
+        parse_mode="HTML",
     )
 
 
