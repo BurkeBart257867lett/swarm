@@ -37,6 +37,7 @@ from htc_commands import HTCCommands
 from nlp.intent_classifier import IntentClassifier, CommMode, load_vault_entities
 from clawbal_client import ClawbalClient
 import soul_manager
+import osp_manager
 import wallet as sol_wallet
 from admin import AdminManager
 
@@ -146,7 +147,8 @@ class SmoltingBot:
             "/stats · /olympics · /mobilize · /chatid · /tap\n\n"
             "🔒 <b>Admin-only</b>\n"
             "/post · /engage · /summon · /personality\n"
-            "/cloud set &lt;provider&gt; · /admin &lt;pin&gt;\n\n"
+            "/cloud set &lt;provider&gt; · /admin &lt;pin&gt;\n"
+            "/admin osp status · /admin osp transfer &lt;key&gt;\n\n"
             f"LLM: <b>{provider}</b> ✅  alpha: <b>xAI grok-4-1-fast</b>\n"
             "pattern blue 活性化 ^*^\n\n"
             "<i>/help for full command details</i>"
@@ -1226,6 +1228,10 @@ swarm@[REDACTED]:~$ _"""
         user_id = update.effective_user.id
         persona = self.user_states.get(user_id, {}).get("personality", "smolting")
 
+        # OSP heartbeat — record activity whenever an operator sends any message
+        if self.admin.is_admin(user_id):
+            osp_manager.record_operator_activity(user_id)
+
         # ── Intent classification ─────────────────────────────────────────────
         classified = self.clf.classify(user_text)
 
@@ -1399,10 +1405,14 @@ swarm@[REDACTED]:~$ _"""
         )
 
     async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """PIN-gated admin session management."""
+        """PIN-gated admin session management + OSP controls."""
         user_id = update.effective_user.id
         args = context.args or []
         sub = args[0].lower() if args else ""
+
+        # Record operator activity for OSP heartbeat whenever an admin uses /admin
+        if self.admin.is_admin(user_id):
+            osp_manager.record_operator_activity(user_id)
 
         if sub == "status":
             await update.message.reply_text(self.admin.status_message(user_id))
@@ -1413,12 +1423,84 @@ swarm@[REDACTED]:~$ _"""
             else:
                 await update.message.reply_text("no active session to end O_O")
 
+        elif sub == "osp":
+            osp_sub = args[1].lower() if len(args) > 1 else "status"
+
+            if osp_sub == "status":
+                await update.message.reply_text(
+                    osp_manager.status_message(), parse_mode="HTML"
+                )
+
+            elif osp_sub == "transfer":
+                # New operator authenticating with succession key
+                # Delete the message immediately — key must not sit in chat
+                try:
+                    await update.message.delete()
+                except Exception:
+                    pass
+                key_attempt = args[2] if len(args) > 2 else ""
+                if not key_attempt:
+                    await update.effective_chat.send_message(
+                        "usage: /admin osp transfer <succession_key>"
+                    )
+                    return
+                if not osp_manager.verify_succession_key(key_attempt):
+                    await update.effective_chat.send_message(
+                        "❌ wrong succession key tbw"
+                    )
+                    return
+                msg = await update.effective_chat.send_message(
+                    "🔑 succession key verified — generating brief + transferring knowledge..."
+                )
+                async def _send_dm(uid, text):
+                    await context.bot.send_message(
+                        chat_id=uid, text=text, parse_mode="HTML"
+                    )
+                result = await osp_manager.recognize_new_operator(
+                    user_id, self.llm, self.moltbook, send_dm_fn=_send_dm
+                )
+                await msg.edit_text(f"✅ {result}", parse_mode="HTML")
+
+            elif osp_sub == "brief":
+                if not self.admin.is_admin(user_id):
+                    await update.message.reply_text(self.admin.locked_message())
+                    return
+                msg = await update.message.reply_text("📄 generating succession brief...")
+                brief = await osp_manager.generate_succession_brief(self.llm)
+                # Send in chunks if long
+                for i in range(0, len(brief), 4000):
+                    await update.message.reply_text(brief[i:i+4000])
+                await msg.delete()
+
+            elif osp_sub == "trigger":
+                # Manual trigger for testing — admin only
+                if not self.admin.is_admin(user_id):
+                    await update.message.reply_text(self.admin.locked_message())
+                    return
+                msg = await update.message.reply_text("🔴 manually triggering OSP...")
+                triggered = await osp_manager.check_and_trigger(self.llm, self.moltbook)
+                if triggered:
+                    await msg.edit_text("🔴 OSP activated — brief generated and posted to Moltbook")
+                else:
+                    await msg.edit_text("OSP already active or threshold not met")
+
+            else:
+                await update.message.reply_text(
+                    "<b>OSP commands:</b>\n"
+                    "/admin osp status — heartbeat + state\n"
+                    "/admin osp brief — generate succession brief (preview)\n"
+                    "/admin osp transfer &lt;key&gt; — new operator authentication\n"
+                    "/admin osp trigger — manually activate OSP (testing)",
+                    parse_mode="HTML",
+                )
+
         elif sub == "" or sub == "help":
             await update.message.reply_text(
                 "🔑 Admin commands:\n"
                 "`/admin <pin>` — authenticate (60 min session)\n"
                 "`/admin status` — check session\n"
-                "`/admin lock` — end session",
+                "`/admin lock` — end session\n"
+                "`/admin osp status` — operator succession protocol state",
                 parse_mode="Markdown",
             )
 
@@ -1431,6 +1513,8 @@ swarm@[REDACTED]:~$ _"""
                 pass  # can't delete in all chat types — non-fatal
             pin_attempt = args[0]  # use raw (not lowercased)
             success, msg = self.admin.authenticate(user_id, pin_attempt)
+            if success:
+                osp_manager.record_operator_activity(user_id)
             await update.effective_chat.send_message(
                 f"{'✅' if success else '❌'} {msg}",
                 parse_mode="Markdown",
@@ -1767,6 +1851,18 @@ def main():
         name="soul_update",
     )
     logger.info("[soul] Scheduled soul update every 2h (first run in 30min)")
+
+    # OSP heartbeat — check daily whether operator has gone dark
+    async def _osp_heartbeat(ctx):
+        await osp_manager.check_and_trigger(bot.llm, bot.moltbook)
+
+    application.job_queue.run_repeating(
+        _osp_heartbeat,
+        interval=86400,   # 24 hours
+        first=3600,       # first check 1h after boot
+        name="osp_heartbeat",
+    )
+    logger.info(f"[osp] Heartbeat scheduled daily (threshold: {osp_manager.OSP_INACTIVE_DAYS}d)")
 
     # Daily /alpha scheduler — set ALPHA_CHAT_ID (group/channel ID) and ALPHA_HOUR_UTC (default 9)
     alpha_chat_id_str = os.environ.get("ALPHA_CHAT_ID", "").strip()
