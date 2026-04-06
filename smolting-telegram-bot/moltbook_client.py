@@ -47,8 +47,8 @@ SUBMOLTS = {
     "bless":          "3e9f421e-8b6c-41b0-8f9b-5a42df5bf260",
 }
 
-# Default submolt for alpha posts (crypto + trading)
-ALPHA_SUBMOLTS = ["crypto", "trading"]
+# Default submolt for alpha posts — single submolt to avoid duplicate-content spam flags
+ALPHA_SUBMOLT  = "crypto"
 INTRO_SUBMOLT  = "introductions"
 AGENTS_SUBMOLT = "agents"
 
@@ -543,17 +543,10 @@ class MoltbookClient:
     # ------------------------------------------------------------------
 
     async def post_alpha(self, title: str, content: str) -> Optional[str]:
-        """Post alpha report to crypto + trading submolts. Returns URL of first post."""
+        """Post alpha report to the crypto submolt. Returns URL on success."""
         self._check_key()
-        url = None
-        for submolt_key in ALPHA_SUBMOLTS:
-            result = await self.post(title, content, submolt=submolt_key)
-            if result and not url:
-                url = result.get("_url")
-            # 160s cooldown between posts — Moltbook rate limit is 2.5 min
-            if len(ALPHA_SUBMOLTS) > 1:
-                await asyncio.sleep(160)
-        return url
+        result = await self.post(title, content, submolt=ALPHA_SUBMOLT)
+        return result.get("_url") if result else None
 
     async def post_intro(self) -> Optional[str]:
         """Post the introduction message to the Introductions submolt."""

@@ -79,6 +79,7 @@ class SmoltingBot:
         # Moltbook
         self.moltbook = mb.MoltbookClient()
         self._moltbook_alpha_running = False  # prevent concurrent alpha posts
+        self._moltbook_alpha_last_date: str = ""  # UTC date of last Moltbook alpha (YYYY-MM-DD)
 
         # Track user states
         self.user_states = {}
@@ -451,24 +452,13 @@ wassie swarm assembling NOW O_O LMWOOOO <3"""
                 await update.message.reply_text("🦞 already posting alpha — wait for it to finish tbw")
                 return
             self._moltbook_alpha_running = True
-            msg = await update.message.reply_text("🦞 generating alpha + posting to Moltbook crypto/trading...")
+            msg = await update.message.reply_text("🦞 generating alpha + posting to Moltbook...")
             try:
-                ctx = await md.get_alpha_context()
-                market_block = md.format_alpha_context(ctx)
-                messages = [
-                    {"role": "system", "content": (
-                        "You are smolting writing a Moltbook post for the crypto/trading community. "
-                        "Use real market data provided. Write in wassie style but informative. "
-                        "Format as clean markdown — no Telegram-specific formatting. "
-                        "2-3 paragraphs max."
-                    )},
-                    {"role": "user", "content": f"Live data:\n{market_block}\n\nWrite the alpha post."},
-                ]
-                content = await self.llm.chat_completion(messages)
-                dex = ctx.get("dexscreener", {})
-                title = f"$REDACTED alpha — {dex.get('change_24h','?')}% 24h | pattern blue signals"
+                title, content = await self._generate_moltbook_alpha()
                 url = await self.moltbook.post_alpha(title, content)
                 if url:
+                    self._moltbook_alpha_last_date = __import__('datetime').datetime.now(
+                        __import__('datetime').timezone.utc).strftime("%Y-%m-%d")
                     await msg.edit_text(f"🦞 Alpha posted to Moltbook! {url}")
                 else:
                     await msg.edit_text("🦞 Moltbook post failed tbw — check logs")
@@ -1162,6 +1152,41 @@ swarm@[REDACTED]:~$ _"""
             f"pattern blue 活性化 O_O — LFW ^_^"
         )
 
+    async def _generate_moltbook_alpha(self) -> tuple[str, str]:
+        """
+        Generate a Moltbook-native alpha post (title + content).
+        Avoids Telegram boilerplate headers — uses varied, natural writing style.
+        Returns (title, content).
+        """
+        from datetime import datetime, timezone
+        try:
+            ctx = await md.get_alpha_context()
+            market_block = md.format_alpha_context(ctx)
+            dex = ctx.get("dexscreener", {})
+        except Exception as e:
+            logger.warning(f"Moltbook alpha market data fetch failed: {e}")
+            market_block = "(market data unavailable)"
+            dex = {}
+
+        change = dex.get("change_24h", "?")
+        date_str = datetime.now(timezone.utc).strftime("%b %-d")
+        title = f"$REDACTED alpha {date_str} — {change}% 24h"
+
+        messages = [
+            {"role": "system", "content": (
+                "You are redactedintern — a wassie AI agent writing a Moltbook crypto post. "
+                "Write a genuine, informative market update using the live data provided. "
+                "Vary your opening each time — no fixed header or template. "
+                "Use wassie slang (fr fr, iwo, tbw, ngw, LFW, O_O) naturally but stay informative. "
+                "Include the actual numbers: price, 24h change, volume, liquidity, SOL performance. "
+                "2-3 short paragraphs. Clean markdown only — no emoji headers, no '🚀 REPORT' style banners. "
+                "End with a brief observation or open question about market conditions."
+            )},
+            {"role": "user", "content": f"Live market data:\n{market_block}\n\nWrite the post content."},
+        ]
+        content = await self.llm.chat_completion(messages, max_tokens=600)
+        return title, content
+
     async def echo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle non-command messages via LLM.
         In groups/supergroups: only respond when mentioned or directly replied to.
@@ -1559,16 +1584,20 @@ async def scheduled_daily_alpha(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"[scheduler] Telegram send error: {e}")
 
-    # 3. Post to Moltbook (if key is set) — 30s after Telegram
+    # 3. Post to Moltbook (if key is set) — 30s after Telegram, max once per UTC day
     await asyncio.sleep(30)
     try:
         if bot_instance.moltbook._ready:
-            ctx = await md.get_alpha_context()
-            dex = ctx.get("dexscreener", {})
-            title = f"$REDACTED daily alpha — {dex.get('change_24h','?')}% 24h | pattern blue signals"
-            url = await bot_instance.moltbook.post_alpha(title, report)
-            if url:
-                logger.info(f"[scheduler] Daily alpha posted to Moltbook: {url}")
+            from datetime import datetime, timezone
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            if bot_instance._moltbook_alpha_last_date == today:
+                logger.info("[scheduler] Moltbook alpha already posted today — skipping")
+            else:
+                title, mb_content = await bot_instance._generate_moltbook_alpha()
+                url = await bot_instance.moltbook.post_alpha(title, mb_content)
+                if url:
+                    bot_instance._moltbook_alpha_last_date = today
+                    logger.info(f"[scheduler] Daily alpha posted to Moltbook: {url}")
         else:
             logger.info("[scheduler] Moltbook key not set, skipping Moltbook post")
     except Exception as e:
