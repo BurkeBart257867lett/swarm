@@ -2,16 +2,20 @@
 """
 Markdown conversation memory for the Telegram bot.
 Appends each user/bot exchange to memory.md inside the bot directory.
+Also maintains a learned_facts.json for continuous learning from interactions.
 """
 
 import os
+import json
 import threading
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 # MEMORY_PATH env var lets Railway volume override the default container path
 MEMORY_FILE = Path(os.getenv("MEMORY_PATH", str(Path(__file__).resolve().parent / "memory.md")))
+LEARNED_FILE = MEMORY_FILE.parent / "learned_facts.json"
 MAX_ENTRIES = 500  # prune oldest entries beyond this
+MAX_FACTS = 200
 _lock = threading.Lock()
 
 _HEADER = "# smolting Telegram Conversation Memory\n\n"
@@ -62,3 +66,71 @@ def get_recent(n: int = 10) -> str:
     parts = text.split("\n## ")
     recent = parts[-(n):]
     return "\n## ".join(recent).strip()
+
+
+def get_user_history(user_id: int, n: int = 6) -> list:
+    """Return the last n exchanges for a specific user as OpenAI-format messages.
+
+    Returns a flat list of alternating {"role": "user"/"assistant", "content": ...} dicts.
+    """
+    with _lock:
+        if not MEMORY_FILE.exists():
+            return []
+        text = MEMORY_FILE.read_text(encoding="utf-8")
+    parts = text.split("\n## ")
+    # Filter sections that belong to this user_id
+    user_parts = [p for p in parts if f"({user_id})" in p.split("\n")[0]]
+    recent = user_parts[-n:]
+    messages = []
+    for part in recent:
+        lines = part.split("\n")
+        user_line = next(
+            (l[len("**User:** "):] for l in lines if l.startswith("**User:** ")), None
+        )
+        bot_line = next(
+            (l[len("**Bot:** "):] for l in lines if l.startswith("**Bot:** ")), None
+        )
+        if user_line:
+            messages.append({"role": "user", "content": user_line.strip()})
+        if bot_line:
+            messages.append({"role": "assistant", "content": bot_line.strip()})
+    return messages
+
+
+# ---------------------------------------------------------------------------
+# Learned facts — continuous learning from Telegram + Moltbook interactions
+# ---------------------------------------------------------------------------
+
+def append_fact(fact: str, source: str = "telegram") -> None:
+    """Persist a learned fact. source = 'telegram' | 'moltbook'."""
+    fact = fact.strip()[:240]
+    if not fact or fact.upper() == "NONE":
+        return
+    with _lock:
+        facts = []
+        if LEARNED_FILE.exists():
+            try:
+                facts = json.loads(LEARNED_FILE.read_text(encoding="utf-8"))
+            except Exception:
+                facts = []
+        # Deduplicate: skip if very similar fact already exists (simple substring check)
+        if any(fact.lower() in f.get("fact", "").lower() or
+               f.get("fact", "").lower() in fact.lower()
+               for f in facts[-20:]):
+            return
+        facts.append({"ts": _now(), "source": source, "fact": fact})
+        if len(facts) > MAX_FACTS:
+            facts = facts[-MAX_FACTS:]
+        LEARNED_FILE.write_text(json.dumps(facts, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def get_recent_facts(n: int = 8) -> list:
+    """Return the n most recent learned facts as strings."""
+    with _lock:
+        if not LEARNED_FILE.exists():
+            return []
+        try:
+            facts = json.loads(LEARNED_FILE.read_text(encoding="utf-8"))
+            return [f["fact"] for f in facts[-n:]]
+        except Exception:
+            return []
