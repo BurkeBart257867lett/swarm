@@ -38,6 +38,7 @@ from nlp.intent_classifier import IntentClassifier, CommMode, load_vault_entitie
 from clawbal_client import ClawbalClient
 import soul_manager
 import wallet as sol_wallet
+from admin import AdminManager
 
 import sys
 
@@ -90,6 +91,9 @@ class SmoltingBot:
 
         # HyperbolicTimeChamber state manager
         self.htc = HTCCommands()
+
+        # Admin session manager
+        self.admin = AdminManager()
 
         # Intent + communication-mode classifier
         self.clf = IntentClassifier()
@@ -194,6 +198,9 @@ LLM: {} ✅ — pattern blue 活性化 ^_^""".format(
     
     async def post_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Enhanced posting with ClawnX + cloud LLM"""
+        if not self.admin.is_admin(update.effective_user.id):
+            await update.message.reply_text(self.admin.locked_message(), parse_mode="Markdown")
+            return
         if not context.args:
             prompt = self.smol.generate([
                 "wassculin urge risin—wat we postin via ClawnX bb??",
@@ -255,6 +262,9 @@ LLM: {} ✅ — pattern blue 活性化 ^_^""".format(
     
     async def engage_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Enhanced auto-engagement with JobQueue"""
+        if not self.admin.is_admin(update.effective_user.id):
+            await update.message.reply_text(self.admin.locked_message(), parse_mode="Markdown")
+            return
         user_id = update.effective_user.id
 
         self.user_states.setdefault(user_id, {"personality": "smolting", "engaging": False})
@@ -428,6 +438,9 @@ wassie swarm assembling NOW O_O LMWOOOO <3"""
                 )
 
         elif sub == "intro":
+            if not self.admin.is_admin(update.effective_user.id):
+                await update.message.reply_text(self.admin.locked_message(), parse_mode="Markdown")
+                return
             msg = await update.message.reply_text("🦞 posting intro to Moltbook... O_O")
             url = await self.moltbook.post_intro()
             if url:
@@ -436,6 +449,9 @@ wassie swarm assembling NOW O_O LMWOOOO <3"""
                 await msg.edit_text("🦞 Intro post failed — check MOLTBOOK_API_KEY tbw")
 
         elif sub == "agents":
+            if not self.admin.is_admin(update.effective_user.id):
+                await update.message.reply_text(self.admin.locked_message(), parse_mode="Markdown")
+                return
             msg = await update.message.reply_text("🦞 posting build log to agents submolt...")
             url = await self.moltbook.post_to_agents_submolt()
             if url:
@@ -444,6 +460,9 @@ wassie swarm assembling NOW O_O LMWOOOO <3"""
                 await msg.edit_text("🦞 Post failed — check MOLTBOOK_API_KEY")
 
         elif sub == "alpha":
+            if not self.admin.is_admin(update.effective_user.id):
+                await update.message.reply_text(self.admin.locked_message(), parse_mode="Markdown")
+                return
             if self._moltbook_alpha_running:
                 await update.message.reply_text("🦞 already posting alpha — wait for it to finish tbw")
                 return
@@ -515,6 +534,7 @@ wassie swarm assembling NOW O_O LMWOOOO <3"""
                 return
 
             if not confirm:
+                # Dry-run is public — no admin required
                 lines = [f"🦞 found {len(dead)} zero-engagement post(s) out of {len(posts)} total:\n"]
                 for p in dead[:15]:
                     title = (p.get("title") or "untitled")[:60]
@@ -527,7 +547,10 @@ wassie swarm assembling NOW O_O LMWOOOO <3"""
                 await msg.edit_text("\n".join(lines))
                 return
 
-            # Confirmed — delete them
+            # Confirmed — admin required for destructive action
+            if not self.admin.is_admin(update.effective_user.id):
+                await msg.edit_text(self.admin.locked_message())
+                return
             deleted = 0
             failed = 0
             await msg.edit_text(f"🦞 deleting {len(dead)} posts... O_O")
@@ -648,6 +671,9 @@ wassie swarm assembling NOW O_O LMWOOOO <3"""
             await update.message.reply_text("\n".join(lines))
 
         elif sub == "send":
+            if not self.admin.is_admin(update.effective_user.id):
+                await update.message.reply_text(self.admin.locked_message(), parse_mode="Markdown")
+                return
             text = " ".join(args[1:]) if len(args) > 1 else None
             if not text:
                 await update.message.reply_text("usage: /clawbal send <message>")
@@ -743,6 +769,9 @@ swarm@[REDACTED]:~$ _"""
 
     async def personality_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Switch personality (smolting / redacted-chan)"""
+        if not self.admin.is_admin(update.effective_user.id):
+            await update.message.reply_text(self.admin.locked_message(), parse_mode="Markdown")
+            return
         if context.args and context.args[0].lower() in ("smolting", "redacted-chan"):
             user_id = update.effective_user.id
             self.user_states.setdefault(user_id, {"personality": "smolting", "engaging": False})
@@ -810,6 +839,9 @@ swarm@[REDACTED]:~$ _"""
 
     async def summon_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Relay /summon <agent> to the TS swarm core."""
+        if not self.admin.is_admin(update.effective_user.id):
+            await update.message.reply_text(self.admin.locked_message(), parse_mode="Markdown")
+            return
         user_id = update.effective_user.id
         username = update.effective_user.username or str(user_id)
 
@@ -881,6 +913,9 @@ swarm@[REDACTED]:~$ _"""
         """Show SOUL.md — smolting's evolving identity. Optionally force a refresh."""
         args = context.args or []
         if args and args[0].lower() == "update":
+            if not self.admin.is_admin(update.effective_user.id):
+                await update.message.reply_text(self.admin.locked_message(), parse_mode="Markdown")
+                return
             msg = await update.message.reply_text("distillin soul from recent memory... O_O")
             updated = await soul_manager.update_soul(self.llm)
             if updated:
@@ -1316,8 +1351,49 @@ swarm@[REDACTED]:~$ _"""
             parse_mode="Markdown",
         )
 
+    async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """PIN-gated admin session management."""
+        user_id = update.effective_user.id
+        args = context.args or []
+        sub = args[0].lower() if args else ""
+
+        if sub == "status":
+            await update.message.reply_text(self.admin.status_message(user_id))
+
+        elif sub == "lock":
+            if self.admin.revoke(user_id):
+                await update.message.reply_text("🔒 admin session ended tbw")
+            else:
+                await update.message.reply_text("no active session to end O_O")
+
+        elif sub == "" or sub == "help":
+            await update.message.reply_text(
+                "🔑 Admin commands:\n"
+                "`/admin <pin>` — authenticate (60 min session)\n"
+                "`/admin status` — check session\n"
+                "`/admin lock` — end session",
+                parse_mode="Markdown",
+            )
+
+        else:
+            # Treat the argument as a PIN attempt
+            # Delete the message immediately to avoid PIN exposure in chat
+            try:
+                await update.message.delete()
+            except Exception:
+                pass  # can't delete in all chat types — non-fatal
+            pin_attempt = args[0]  # use raw (not lowercased)
+            success, msg = self.admin.authenticate(user_id, pin_attempt)
+            await update.effective_chat.send_message(
+                f"{'✅' if success else '❌'} {msg}",
+                parse_mode="Markdown",
+            )
+
     async def wallet_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Show smolting's Solana wallet — address, SOL balance, $REDACTED balance."""
+        if not self.admin.is_admin(update.effective_user.id):
+            await update.message.reply_text(self.admin.locked_message(), parse_mode="Markdown")
+            return
         msg = await update.message.reply_text("checkin da wallet... O_O")
         try:
             summary = await sol_wallet.get_wallet_summary()
@@ -1551,6 +1627,7 @@ def main():
     application.add_handler(CommandHandler("clawbal", bot.clawbal_command))
     application.add_handler(CommandHandler("soul", bot.soul_command))
     application.add_handler(CommandHandler("wallet", bot.wallet_command))
+    application.add_handler(CommandHandler("admin", bot.admin_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.echo))
 
     # Init LoreVault DB on startup (creates tables + seeds if empty)
