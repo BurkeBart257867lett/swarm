@@ -36,6 +36,7 @@ import requests
 from htc_commands import HTCCommands
 from nlp.intent_classifier import IntentClassifier, CommMode, load_vault_entities
 from clawbal_client import ClawbalClient
+import soul_manager
 
 import sys
 
@@ -659,6 +660,7 @@ wassie swarm assembling NOW O_O LMWOOOO <3"""
             price_line = "fetching..."
         from llm.cloud_client import ALPHA_XAI_MODEL
         clawbal_ready = self.clawbal.status_line()
+        soul_ready = soul_manager.soul_status_line()
         msg = f"""📊 SMOLTING STATS 📊
 LLM: {provider.upper()} ({model}) ✅
 Alpha LLM: xAI {ALPHA_XAI_MODEL} ✅
@@ -669,6 +671,7 @@ Clawbal (IQLabs): {clawbal_ready}
 Birdeye: {birdeye_ready}
 DexScreener: ✅ (free)
 CoinGecko: ✅ (free)
+{soul_ready}
 $REDACTED: {price_line}
 Pattern Blue: active
 swarm@[REDACTED]:~$ _"""
@@ -810,6 +813,40 @@ swarm@[REDACTED]:~$ _"""
         footer = f"\n\nCurrent state:\n{current[:200]}…" if current else ""
         await update.message.reply_text(header + body + footer)
 
+    async def soul_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Show SOUL.md — smolting's evolving identity. Optionally force a refresh."""
+        args = context.args or []
+        if args and args[0].lower() == "update":
+            msg = await update.message.reply_text("distillin soul from recent memory... O_O")
+            updated = await soul_manager.update_soul(self.llm)
+            if updated:
+                await msg.edit_text("soul updated — pattern blue imprinted fr fr ^*^")
+            else:
+                await msg.edit_text(
+                    "soul update skipped — either within cooldown (6h) or not enough learned facts yet tbw"
+                )
+            return
+
+        soul = soul_manager.read_soul()
+        if not soul:
+            await update.message.reply_text("SOUL.md not found — smolting is still becoming O_O")
+            return
+
+        # Send the evolving sections only (Core Identity is long and stable)
+        sections = ["Evolving Beliefs", "Community Lore", "Voice Notes", "Notable Events"]
+        import re as _re
+        chunks = []
+        for section in sections:
+            m = _re.search(rf"## {section}\n(.*?)(?=\n## |\Z)", soul, _re.DOTALL)
+            if m:
+                content = m.group(1).strip()
+                if content:
+                    chunks.append(f"**{section}**\n{content}")
+        if chunks:
+            await update.message.reply_text("🌀 SMOLTING SOUL\n\n" + "\n\n".join(chunks))
+        else:
+            await update.message.reply_text("soul file exists but no evolving content yet — check back after some convos ^*^")
+
     def _build_system_prompt(self) -> str:
         """Build system prompt from RedactedIntern.character.json + inline fallback."""
         repo_root = Path(__file__).resolve().parent.parent
@@ -930,6 +967,9 @@ swarm@[REDACTED]:~$ _"""
                 + "\n".join(f"- {f}" for f in recent_facts)
             )
 
+        # Persistent soul — evolving beliefs and community observations
+        soul_block = soul_manager.get_soul_for_prompt()
+
         return (
             f"You are smolting (@RedactedIntern) — {bio}\n\n"
             "## Lore Corpus\n"
@@ -947,6 +987,7 @@ swarm@[REDACTED]:~$ _"""
             "## REDACTED Manifesto (excerpt)\n"
             f"{manifesto_snippet}"
             f"{post_block}"
+            f"{soul_block}"
             f"{facts_block}\n\n"
             "## Telegram Behavior\n"
             "Keep responses concise for Telegram — 1-3 short paragraphs. "
@@ -1406,6 +1447,7 @@ def main():
     application.add_handler(CommandHandler("ca", bot.ca_command))
     application.add_handler(CommandHandler("htc", bot.htc.handle))
     application.add_handler(CommandHandler("clawbal", bot.clawbal_command))
+    application.add_handler(CommandHandler("soul", bot.soul_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.echo))
 
     # Init LoreVault DB on startup (creates tables + seeds if empty)
@@ -1464,6 +1506,18 @@ def main():
         application.job_queue.run_repeating(_mb_post,  interval=21600, first=3600,
                                             name="mb_autonomous_post")
         logger.info("[moltbook_auto] Autonomous loops scheduled: reply=20m, scan=45m, post=6h")
+
+    # Soul update job — distills memory.md + learned_facts into SOUL.md every 6h
+    async def _soul_update(ctx):
+        await soul_manager.update_soul(bot.llm)
+
+    application.job_queue.run_repeating(
+        _soul_update,
+        interval=21600,   # 6 hours
+        first=3600,       # first run 1h after boot (let facts accumulate)
+        name="soul_update",
+    )
+    logger.info("[soul] Scheduled soul update every 6h (first run in 1h)")
 
     # Daily /alpha scheduler — set ALPHA_CHAT_ID (group/channel ID) and ALPHA_HOUR_UTC (default 9)
     alpha_chat_id_str = os.environ.get("ALPHA_CHAT_ID", "").strip()
