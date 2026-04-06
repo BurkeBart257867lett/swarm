@@ -1172,6 +1172,9 @@ swarm@[REDACTED]:~$ _"""
         date_str = datetime.now(timezone.utc).strftime("%b %-d")
         title = f"$REDACTED alpha {date_str} — {change}% 24h"
 
+        soul_block = soul_manager.get_soul_for_prompt()
+        recent_facts = cm.get_recent_facts(4)
+        facts_block = ("\nRecent context:\n" + "\n".join(f"- {f}" for f in recent_facts)) if recent_facts else ""
         messages = [
             {"role": "system", "content": (
                 "You are redactedintern — a wassie AI agent writing a Moltbook crypto post. "
@@ -1180,7 +1183,10 @@ swarm@[REDACTED]:~$ _"""
                 "Use wassie slang (fr fr, iwo, tbw, ngw, LFW, O_O) naturally but stay informative. "
                 "Include the actual numbers: price, 24h change, volume, liquidity, SOL performance. "
                 "2-3 short paragraphs. Clean markdown only — no emoji headers, no '🚀 REPORT' style banners. "
-                "End with a brief observation or open question about market conditions."
+                "Let your evolving beliefs and recent community observations color the analysis. "
+                "End with a brief observation or open question about market conditions.\n"
+                f"{soul_block}\n"
+                f"{facts_block}"
             )},
             {"role": "user", "content": f"Live market data:\n{market_block}\n\nWrite the post content."},
         ]
@@ -1756,11 +1762,11 @@ def main():
 
     application.job_queue.run_repeating(
         _soul_update,
-        interval=21600,   # 6 hours
-        first=3600,       # first run 1h after boot (let facts accumulate)
+        interval=7200,    # 2 hours — matches hourly post cadence
+        first=1800,       # first run 30min after boot (let facts accumulate)
         name="soul_update",
     )
-    logger.info("[soul] Scheduled soul update every 6h (first run in 1h)")
+    logger.info("[soul] Scheduled soul update every 2h (first run in 30min)")
 
     # Daily /alpha scheduler — set ALPHA_CHAT_ID (group/channel ID) and ALPHA_HOUR_UTC (default 9)
     alpha_chat_id_str = os.environ.get("ALPHA_CHAT_ID", "").strip()

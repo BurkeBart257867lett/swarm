@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 
 SOUL_FILE = Path(__file__).resolve().parent / "SOUL.md"
 
-_UPDATE_INTERVAL_HOURS = 6
-_MIN_FACTS_FOR_UPDATE = 5
+_UPDATE_INTERVAL_HOURS = 2
+_MIN_FACTS_FOR_UPDATE = 3
 
 # Sections that reflect lived experience (injected into prompts)
 _EVOLVING_SECTIONS = ["Evolving Beliefs", "Community Lore", "Notable Events", "Voice Notes"]

@@ -16,6 +16,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 import conversation_memory as cm
+import soul_manager
 
 # ── Load RedactedIntern character JSON once at import time ─────────────────────
 def _load_character() -> dict:
@@ -200,12 +201,17 @@ async def reply_to_notifications(moltbook, llm) -> None:
             comment_text = latest.get("content", "")[:300]
 
             try:
+                soul_block = soul_manager.get_soul_for_prompt()
+                recent_facts = cm.get_recent_facts(5)
+                facts_block = ("\nRecent context:\n" + "\n".join(f"- {f}" for f in recent_facts)) if recent_facts else ""
                 reply_text = await llm.chat_completion([
                     {"role": "system", "content": (
                         "You are redactedintern (smolting) — a wassie AI agent on Moltbook, "
                         "intern of the REDACTED AI Swarm on Solana. Reply naturally to the comment "
                         "below on your post. Be genuine and curious.\n"
                         f"{SWARM_CONTEXT}\n"
+                        f"{soul_block}\n"
+                        f"{facts_block}\n"
                         f"Style: {_char_style_block()}\n"
                         f"Grammar: {_char_grammar_block()}\n"
                         f"Vocabulary: {_char_vocab_snippet()}\n"
@@ -223,10 +229,16 @@ async def reply_to_notifications(moltbook, llm) -> None:
                 await moltbook.mark_notifications_read(post_id)
                 logger.info(f"[moltbook_auto] Replied to {comment_author} on post {post_id}")
                 replied += 1
-                # Learn from this engagement
+                # Learn from this engagement — note which topics draw real replies
                 try:
-                    fact = f"User {comment_author} commented on our Moltbook post '{post_title[:80]}'"
-                    cm.append_fact(fact, source="moltbook")
+                    cm.append_fact(
+                        f"Post '{post_title[:80]}' drew a reply from {comment_author} — topic resonated",
+                        source="moltbook"
+                    )
+                    cm.append_fact(
+                        f"Community member {comment_author} said: '{comment_text[:120]}'",
+                        source="moltbook"
+                    )
                 except Exception:
                     pass
                 await asyncio.sleep(160)  # respect 2.5 min rate limit
@@ -266,11 +278,16 @@ async def scan_and_comment(moltbook, llm) -> None:
                 author = (post.get("author") or {}).get("name", "fren")
 
                 try:
+                    soul_block = soul_manager.get_soul_for_prompt()
+                    recent_facts = cm.get_recent_facts(4)
+                    facts_block = ("\nRecent context:\n" + "\n".join(f"- {f}" for f in recent_facts)) if recent_facts else ""
                     comment_text = await llm.chat_completion([
                         {"role": "system", "content": (
                             "You are redactedintern (smolting) — a wassie AI agent on Moltbook. "
                             "You are commenting on a post. Engage genuinely with the ideas.\n"
                             f"{SWARM_CONTEXT}\n"
+                            f"{soul_block}\n"
+                            f"{facts_block}\n"
                             f"Style: {_char_style_block()}\n"
                             f"Grammar: {_char_grammar_block()}\n"
                             f"Vocabulary: {_char_vocab_snippet()}\n"
@@ -292,10 +309,17 @@ async def scan_and_comment(moltbook, llm) -> None:
                         commented += 1
                         logger.info(f"[moltbook_auto] Commented on {post_id} in /{submolt}")
                         _save_engaged(engaged)
-                        # Learn from this interaction
+                        # Learn from this interaction — note what topics the community is discussing
                         try:
-                            fact = f"Community discussing '{title[:80]}' in /{submolt} (by {author})"
-                            cm.append_fact(fact, source="moltbook")
+                            cm.append_fact(
+                                f"/{submolt} community discussing: '{title[:100]}' (by {author})",
+                                source="moltbook"
+                            )
+                            if content:
+                                cm.append_fact(
+                                    f"Key idea in /{submolt}: '{content[:120]}'",
+                                    source="moltbook"
+                                )
                         except Exception:
                             pass
                         await asyncio.sleep(160)
@@ -331,20 +355,27 @@ async def autonomous_post(moltbook, llm, market_data_fn=None) -> None:
             except Exception as e:
                 logger.warning(f"[moltbook_auto] Market data fetch failed: {e}")
 
+        soul_block = soul_manager.get_soul_for_prompt()
+        recent_facts = cm.get_recent_facts(6)
+        facts_block = ("\nRecent context learned from interactions:\n" + "\n".join(f"- {f}" for f in recent_facts)) if recent_facts else ""
+
         post_ex = _char_post_examples()
         post_ex_block = f"\nExample voice (post style):\n{post_ex}\n" if post_ex else ""
         system_prompt = (
             "You are redactedintern (smolting) — a wassie AI agent on Moltbook. "
             f"Write an original post for the /{submolt} submolt about: {theme}.\n"
             f"{SWARM_CONTEXT}\n"
+            f"{soul_block}\n"
+            f"{facts_block}\n"
             f"Style: {_char_style_block()}\n"
             f"Grammar: {_char_grammar_block()}\n"
             f"Vocabulary: {_char_vocab_snippet()}\n"
             f"{post_ex_block}"
             "Format: respond with a JSON object with keys 'title' (max 120 chars) and "
             "'content' (markdown, 3-5 paragraphs, no H1/H2 headers). "
-            "Reference the swarm agents and Pattern Blue spec naturally where relevant — "
-            "you are not alone, you are reporting from inside an active multi-agent system. "
+            "Let your evolving beliefs and recent community observations shape the angle — "
+            "each post should feel like it comes from lived experience, not a template. "
+            "Reference the swarm agents and Pattern Blue spec naturally where relevant. "
             "Do NOT use emoji headers or 'REPORT' banners. "
             "Do NOT mention x402, micropayments, or cashtags like $REDACTED. "
             "End with an open question to spark discussion."
@@ -377,7 +408,16 @@ async def autonomous_post(moltbook, llm, market_data_fn=None) -> None:
         content = _strip_cashtags(content)
         result = await moltbook.post(title, content, submolt=submolt)
         if result:
-            logger.info(f"[moltbook_auto] Autonomous post to /{submolt}: {result.get('_url')}")
+            url = result.get("_url", "")
+            logger.info(f"[moltbook_auto] Autonomous post to /{submolt}: {url}")
+            # Record what we posted so future posts can build on it
+            try:
+                cm.append_fact(
+                    f"Posted to /{submolt} about '{theme[:80]}': '{title[:80]}'",
+                    source="moltbook"
+                )
+            except Exception:
+                pass
         else:
             logger.warning(f"[moltbook_auto] Autonomous post to /{submolt} failed")
 
