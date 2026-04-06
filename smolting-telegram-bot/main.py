@@ -1746,9 +1746,9 @@ def main():
                                             name="mb_reply_notifications")
         application.job_queue.run_repeating(_mb_scan,  interval=2700, first=600,
                                             name="mb_scan_and_comment")
-        application.job_queue.run_repeating(_mb_post,  interval=21600, first=3600,
+        application.job_queue.run_repeating(_mb_post,  interval=3600, first=300,
                                             name="mb_autonomous_post")
-        logger.info("[moltbook_auto] Autonomous loops scheduled: reply=20m, scan=45m, post=6h")
+        logger.info("[moltbook_auto] Autonomous loops scheduled: reply=20m, scan=45m, post=1h")
 
     # Soul update job — distills memory.md + learned_facts into SOUL.md every 6h
     async def _soul_update(ctx):
