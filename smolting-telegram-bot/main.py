@@ -482,6 +482,22 @@ wassie swarm assembling NOW O_O LMWOOOO <3"""
                 lines.append(f"• [{p.get('title','?')}] by {author} (+{score})")
             await update.message.reply_text("\n".join(lines))
 
+        elif sub == "introspect":
+            if not self.admin.is_admin(update.effective_user.id):
+                await update.message.reply_text(self.admin.locked_message(), parse_mode="Markdown")
+                return
+            msg = await update.message.reply_text("🦞 generating swarm introspection post... O_O")
+            try:
+                import moltbook_autonomous as mb_auto
+                url = await mb_auto.post_swarm_introspection(self.moltbook, self.llm)
+                if url:
+                    await msg.edit_text(f"🦞 Swarm introspection posted! {url}")
+                else:
+                    await msg.edit_text("🦞 Introspection post failed — check logs tbw")
+            except Exception as e:
+                logger.error(f"moltbook introspect error: {e}")
+                await msg.edit_text(f"🦞 Error: {e}")
+
         elif sub == "cleanup":
             # Dry-run: /moltbook cleanup
             # Actual delete: /moltbook cleanup confirm
@@ -554,6 +570,7 @@ wassie swarm assembling NOW O_O LMWOOOO <3"""
                 "/moltbook intro — post introduction\n"
                 "/moltbook agents — post build log\n"
                 "/moltbook alpha — post alpha report\n"
+                "/moltbook introspect — post swarm introspection 🔒\n"
                 "/moltbook feed — show crypto feed\n"
                 "/moltbook cleanup — preview zero-engagement posts\n"
                 "/moltbook cleanup confirm — delete them"
@@ -918,20 +935,28 @@ swarm@[REDACTED]:~$ _"""
         await update.message.reply_text(header + body + footer)
 
     async def soul_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Show SOUL.md — smolting's evolving identity. Optionally force a refresh."""
+        """Show SOUL.md — smolting's evolving identity. Optionally force a refresh or show drift."""
         args = context.args or []
-        if args and args[0].lower() == "update":
+        sub  = args[0].lower() if args else ""
+
+        if sub == "update":
             if not self.admin.is_admin(update.effective_user.id):
                 await update.message.reply_text(self.admin.locked_message(), parse_mode="Markdown")
                 return
             msg = await update.message.reply_text("distillin soul from recent memory... O_O")
             updated = await soul_manager.update_soul(self.llm)
             if updated:
-                await msg.edit_text("soul updated — pattern blue imprinted fr fr ^*^")
+                v = soul_manager.current_soul_version()
+                await msg.edit_text(f"soul updated to v{v} — pattern blue imprinted fr fr ^*^")
             else:
                 await msg.edit_text(
-                    "soul update skipped — either within cooldown (6h) or not enough learned facts yet tbw"
+                    "soul update skipped — within cooldown (2h) or not enough learned facts yet tbw"
                 )
+            return
+
+        if sub == "drift":
+            drift = soul_manager.soul_drift_summary(versions=5)
+            await update.message.reply_text(drift)
             return
 
         soul = soul_manager.read_soul()
@@ -949,8 +974,10 @@ swarm@[REDACTED]:~$ _"""
                 content = m.group(1).strip()
                 if content:
                     chunks.append(f"**{section}**\n{content}")
+        v = soul_manager.current_soul_version()
+        header = f"🌀 SMOLTING SOUL (v{v})\n\n" if v else "🌀 SMOLTING SOUL\n\n"
         if chunks:
-            await update.message.reply_text("🌀 SMOLTING SOUL\n\n" + "\n\n".join(chunks))
+            await update.message.reply_text(header + "\n\n".join(chunks))
         else:
             await update.message.reply_text("soul file exists but no evolving content yet — check back after some convos ^*^")
 
@@ -1154,9 +1181,83 @@ swarm@[REDACTED]:~$ _"""
             f"pattern blue 活性化 O_O — LFW ^_^"
         )
 
+    def _build_alpha_data_block(self, ctx: dict) -> str:
+        """
+        Build a structured markdown data table from market context.
+        Computes actionable levels: momentum target, volume breakout threshold,
+        next holder milestone.
+        """
+        try:
+            dex  = ctx.get("dexscreener", {})
+            cgko = ctx.get("coingecko",   {})
+
+            price    = dex.get("price_usd")  or cgko.get("price_usd")
+            change   = dex.get("change_24h") or cgko.get("change_24h_pct")
+            vol_24h  = dex.get("volume_24h") or 0
+            liq      = dex.get("liquidity")  or 0
+            holders  = dex.get("holders")    or cgko.get("holders") or 0
+            sol_chg  = ctx.get("sol_change_24h") or cgko.get("sol_change_24h") or "?"
+
+            # Momentum 24h price target: price × (1 + |change| / 100) if bullish, else None
+            momentum_target = None
+            try:
+                if price and change:
+                    pf = float(str(price).replace(",", ""))
+                    cf = float(str(change).replace("%", "").replace("+", ""))
+                    if cf > 0:
+                        momentum_target = f"${pf * (1 + cf / 100):.6f}"
+            except Exception:
+                pass
+
+            # Volume breakout: 120% of 24h volume
+            vol_breakout = None
+            try:
+                if vol_24h:
+                    vf = float(str(vol_24h).replace(",", "").replace("$", ""))
+                    vol_breakout = f"${vf * 1.2:,.0f}"
+            except Exception:
+                pass
+
+            # Next holder milestone: round up to nearest 500
+            holder_milestone = None
+            try:
+                if holders:
+                    hf = int(str(holders).replace(",", ""))
+                    import math
+                    holder_milestone = str(int(math.ceil((hf + 1) / 500) * 500))
+            except Exception:
+                pass
+
+            rows = []
+            if price:
+                rows.append(f"| price | ${price} |")
+            if change is not None:
+                rows.append(f"| 24h change | {change}% |")
+            if vol_24h:
+                rows.append(f"| 24h volume | ${vol_24h:,}" if isinstance(vol_24h, (int, float)) else f"| 24h volume | {vol_24h} |")
+                rows.append(f"| volume breakout lvl | {vol_breakout or '—'} |")
+            if liq:
+                rows.append(f"| liquidity | ${liq:,}" if isinstance(liq, (int, float)) else f"| liquidity | {liq} |")
+            if holders:
+                rows.append(f"| holders | {holders:,}" if isinstance(holders, int) else f"| holders | {holders} |")
+                rows.append(f"| next holder milestone | {holder_milestone or '—'} |")
+            if momentum_target:
+                rows.append(f"| momentum target (24h) | {momentum_target} |")
+            rows.append(f"| SOL 24h | {sol_chg}% |")
+
+            if not rows:
+                return ""
+
+            table = "| metric | value |\n| --- | --- |\n" + "\n".join(rows)
+            return f"\n\n**live data:**\n\n{table}"
+        except Exception as e:
+            logger.warning(f"_build_alpha_data_block error: {e}")
+            return ""
+
     async def _generate_moltbook_alpha(self) -> tuple[str, str]:
         """
         Generate a Moltbook-native alpha post (title + content).
+        Includes a structured data table (momentum target, volume breakout, holder milestone).
         Avoids Telegram boilerplate headers — uses varied, natural writing style.
         Returns (title, content).
         """
@@ -1169,14 +1270,15 @@ swarm@[REDACTED]:~$ _"""
             logger.warning(f"Moltbook alpha market data fetch failed: {e}")
             market_block = "(market data unavailable)"
             dex = {}
+            ctx = {}
 
-        change = dex.get("change_24h", "?")
+        change   = dex.get("change_24h", "?")
         date_str = datetime.now(timezone.utc).strftime("%b %-d")
-        title = f"$REDACTED alpha {date_str} — {change}% 24h"
+        title    = f"REDACTED alpha {date_str} — {change}% 24h"
 
-        soul_block = soul_manager.get_soul_for_prompt()
+        soul_block   = soul_manager.get_soul_for_prompt()
         recent_facts = cm.get_recent_facts(4)
-        facts_block = ("\nRecent context:\n" + "\n".join(f"- {f}" for f in recent_facts)) if recent_facts else ""
+        facts_block  = ("\nRecent context:\n" + "\n".join(f"- {f}" for f in recent_facts)) if recent_facts else ""
         messages = [
             {"role": "system", "content": (
                 "You are redactedintern — a wassie AI agent writing a Moltbook crypto post. "
@@ -1185,6 +1287,7 @@ swarm@[REDACTED]:~$ _"""
                 "Use wassie slang (fr fr, iwo, tbw, ngw, LFW, O_O) naturally but stay informative. "
                 "Include the actual numbers: price, 24h change, volume, liquidity, SOL performance. "
                 "2-3 short paragraphs. Clean markdown only — no emoji headers, no '🚀 REPORT' style banners. "
+                "The structured data table will be appended automatically — do NOT reproduce it in your prose. "
                 "Let your evolving beliefs and recent community observations color the analysis. "
                 "End with a brief observation or open question about market conditions.\n"
                 f"{soul_block}\n"
@@ -1192,7 +1295,9 @@ swarm@[REDACTED]:~$ _"""
             )},
             {"role": "user", "content": f"Live market data:\n{market_block}\n\nWrite the post content."},
         ]
-        content = await self.llm.chat_completion(messages, max_tokens=600)
+        prose   = await self.llm.chat_completion(messages, max_tokens=600)
+        data_tbl = self._build_alpha_data_block(ctx)
+        content  = prose + data_tbl
         return title, content
 
     async def echo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1484,11 +1589,30 @@ swarm@[REDACTED]:~$ _"""
                 else:
                     await msg.edit_text("OSP already active or threshold not met")
 
+            elif osp_sub == "spec":
+                # Post the OSP technical spec to Moltbook (research + swarm)
+                if not self.admin.is_admin(user_id):
+                    await update.message.reply_text(self.admin.locked_message())
+                    return
+                msg = await update.message.reply_text(
+                    "📐 generating OSP technical spec + posting to m/research and m/swarm..."
+                )
+                try:
+                    url = await osp_manager.post_osp_spec(self.llm, self.moltbook)
+                    if url:
+                        await msg.edit_text(f"📐 OSP spec posted! {url}")
+                    else:
+                        await msg.edit_text("📐 Spec post failed — check logs tbw")
+                except Exception as e:
+                    logger.error(f"osp spec error: {e}")
+                    await msg.edit_text(f"📐 Error: {e}")
+
             else:
                 await update.message.reply_text(
                     "<b>OSP commands:</b>\n"
                     "/admin osp status — heartbeat + state\n"
                     "/admin osp brief — generate succession brief (preview)\n"
+                    "/admin osp spec — post technical spec to Moltbook\n"
                     "/admin osp transfer &lt;key&gt; — new operator authentication\n"
                     "/admin osp trigger — manually activate OSP (testing)",
                     parse_mode="HTML",
@@ -1500,7 +1624,10 @@ swarm@[REDACTED]:~$ _"""
                 "`/admin <pin>` — authenticate (60 min session)\n"
                 "`/admin status` — check session\n"
                 "`/admin lock` — end session\n"
-                "`/admin osp status` — operator succession protocol state",
+                "`/admin osp status` — operator succession protocol state\n"
+                "`/admin osp spec` — post OSP technical spec to Moltbook\n"
+                "`/admin osp brief` — preview succession brief\n"
+                "`/admin osp trigger` — manually activate OSP (testing)",
                 parse_mode="Markdown",
             )
 
@@ -1613,6 +1740,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/moltbook cleanup — preview zero-engagement posts\n"
         "/moltbook cleanup confirm — delete them 🔒\n"
         "/moltbook alpha — post live alpha 🔒\n"
+        "/moltbook introspect — post swarm introspection 🔒\n"
         "/moltbook intro — post introduction 🔒\n"
         "/moltbook agents — post build log 🔒\n\n"
         "🔮 <b>Clawbal (IQLabs)</b>\n"
@@ -1626,7 +1754,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/wallet — SOL + $REDACTED balance 🔒\n\n"
         "🌀 <b>Soul</b>\n"
         "/soul — smolting's evolving identity\n"
-        "/soul update — force soul refresh 🔒\n\n"
+        "/soul update — force soul refresh 🔒\n"
+        "/soul drift — belief version history\n\n"
         "🤖 <b>Terminal</b>\n"
         "/terminal — activate REDACTED Terminal\n"
         "/exit — exit terminal mode\n\n"
