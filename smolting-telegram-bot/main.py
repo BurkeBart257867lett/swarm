@@ -486,6 +486,67 @@ wassie swarm assembling NOW O_O LMWOOOO <3"""
                 lines.append(f"• [{p.get('title','?')}] by {author} (+{score})")
             await update.message.reply_text("\n".join(lines))
 
+        elif sub == "cleanup":
+            # Dry-run: /moltbook cleanup
+            # Actual delete: /moltbook cleanup confirm
+            confirm = len(args) > 1 and args[1].lower() == "confirm"
+            msg = await update.message.reply_text("🦞 scanning your posts for zero-engagement ones... O_O")
+            try:
+                posts = await self.moltbook.get_my_posts(limit=100)
+            except Exception as e:
+                await msg.edit_text(f"🦞 fetch failed: {e}")
+                return
+
+            if not posts:
+                await msg.edit_text("🦞 no posts found (or API doesn't support listing — check manually)")
+                return
+
+            # Zero engagement = 0 upvotes/score AND 0 comments
+            dead = []
+            for p in posts:
+                score = p.get("score", 0) or p.get("upvotes", 0) or p.get("vote_count", 0) or 0
+                comments = p.get("comment_count", 0) or p.get("comments", 0) or 0
+                if score == 0 and comments == 0:
+                    dead.append(p)
+
+            if not dead:
+                await msg.edit_text(f"🦞 scanned {len(posts)} posts — all have engagement, nothing to delete tbw ^*^")
+                return
+
+            if not confirm:
+                lines = [f"🦞 found {len(dead)} zero-engagement post(s) out of {len(posts)} total:\n"]
+                for p in dead[:15]:
+                    title = (p.get("title") or "untitled")[:60]
+                    pid = p.get("id", "?")
+                    submolt = p.get("submolt") or (p.get("submolt_data") or {}).get("name", "?")
+                    lines.append(f"• [{submolt}] {title} (id: {pid[:8]}…)")
+                if len(dead) > 15:
+                    lines.append(f"…and {len(dead) - 15} more")
+                lines.append("\nrun `/moltbook cleanup confirm` to delete all of these")
+                await msg.edit_text("\n".join(lines))
+                return
+
+            # Confirmed — delete them
+            deleted = 0
+            failed = 0
+            await msg.edit_text(f"🦞 deleting {len(dead)} posts... O_O")
+            for p in dead:
+                pid = p.get("id")
+                if not pid:
+                    continue
+                ok = await self.moltbook.delete_post(pid)
+                if ok:
+                    deleted += 1
+                else:
+                    failed += 1
+                await asyncio.sleep(2)  # be gentle with the API
+
+            result_line = f"🦞 cleanup done — deleted {deleted}"
+            if failed:
+                result_line += f", failed {failed} (check logs)"
+            result_line += f" out of {len(dead)} zero-engagement posts tbw ^*^"
+            await msg.edit_text(result_line)
+
         else:
             await update.message.reply_text(
                 "🦞 Moltbook commands:\n"
@@ -493,7 +554,9 @@ wassie swarm assembling NOW O_O LMWOOOO <3"""
                 "/moltbook intro — post introduction\n"
                 "/moltbook agents — post build log\n"
                 "/moltbook alpha — post alpha report\n"
-                "/moltbook feed — show crypto feed"
+                "/moltbook feed — show crypto feed\n"
+                "/moltbook cleanup — preview zero-engagement posts\n"
+                "/moltbook cleanup confirm — delete them"
             )
 
     async def lore_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):

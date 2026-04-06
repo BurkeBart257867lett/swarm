@@ -11,6 +11,7 @@ import re
 import asyncio
 import logging
 import aiohttp
+import difflib
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -104,6 +105,8 @@ class MoltbookClient:
     def _solve_challenge(self, challenge: dict) -> Optional[str]:
         """
         Solve obfuscated math challenge. Handles both symbolic and word-based expressions.
+        The challenge text uses randomized CaPs, injected symbols, and doubled/extra letters
+        (e.g. "SiIx" → six, "FoOuR" → four, "NoOoToNs" → newtons).
         Returns answer as string with 2 decimal places.
         """
         try:
@@ -119,21 +122,29 @@ class MoltbookClient:
 
             # Extract all numbers (digit or word-based)
             numbers = []
+
             # Find digit numbers first
             for m in re.finditer(r'\d+(?:\.\d+)?', text):
                 numbers.append(float(m.group()))
-            # Find word numbers if no digit numbers found
+
+            # Find word numbers — strip all non-alpha chars first, then fuzzy-match
             if not numbers:
-                words = re.findall(r'[a-z]+', text)
+                # Strip noise: keep only letters and spaces
+                clean = re.sub(r'[^a-z\s]', ' ', text)
+                clean = re.sub(r'\s+', ' ', clean).strip()
+                words = clean.split()
                 i = 0
                 while i < len(words):
                     w = words[i]
-                    if w in self._WORD_NUMS:
-                        val = self._WORD_NUMS[w]
-                        # Handle "twenty three" etc.
-                        if i + 1 < len(words) and words[i+1] in self._WORD_NUMS and self._WORD_NUMS[words[i+1]] < 10:
-                            val += self._WORD_NUMS[words[i+1]]
-                            i += 1
+                    matched = self._fuzzy_word_num(w)
+                    if matched is not None:
+                        val = matched
+                        # Handle compound "twenty three" etc.
+                        if i + 1 < len(words):
+                            next_match = self._fuzzy_word_num(words[i + 1])
+                            if next_match is not None and next_match < 10:
+                                val += next_match
+                                i += 1
                         numbers.append(float(val))
                     i += 1
 
@@ -146,9 +157,11 @@ class MoltbookClient:
                 logger.warning(f"Could not parse challenge: {expr_raw!r}")
                 return None
 
-            # Detect operator: multiplication if * / "times" / "multiplied by" present
-            is_multiply = bool(re.search(r'\*|times|multiplied by|x \d', text))
-            is_subtract = bool(re.search(r'\bminus\b|\bsubtract\b', text))
+            # Detect operator from cleaned text
+            clean_text = re.sub(r'[^a-z\s]', ' ', text)
+            # "per" = multiply (e.g. "6 newtons per tooth × 4 teeth")
+            is_multiply = bool(re.search(r'\*|times|multiplied\s+by|\bper\b|x\s+\d', clean_text))
+            is_subtract = bool(re.search(r'\bminus\b|\bsubtract\b', clean_text))
             if is_multiply and len(numbers) >= 2:
                 result = numbers[0]
                 for n in numbers[1:]:
@@ -163,6 +176,28 @@ class MoltbookClient:
         except Exception as e:
             logger.error(f"Challenge solve error: {e} | raw={challenge}")
             return None
+
+    def _fuzzy_word_num(self, word: str) -> Optional[int]:
+        """
+        Match a (possibly obfuscated) word to a number word using exact then fuzzy matching.
+        Returns the numeric value, or None if no match.
+        """
+        if word in self._WORD_NUMS:
+            return self._WORD_NUMS[word]
+        # Fuzzy: find closest match with similarity >= 0.75
+        best_score = 0.0
+        best_val = None
+        for num_word, val in self._WORD_NUMS.items():
+            # Only compare words of similar length (±3 chars) to avoid false positives
+            if abs(len(word) - len(num_word)) > 3:
+                continue
+            score = difflib.SequenceMatcher(None, word, num_word).ratio()
+            if score > best_score:
+                best_score = score
+                best_val = val
+        if best_score >= 0.75:
+            return best_val
+        return None
 
     async def _submit_challenge(self, session: aiohttp.ClientSession,
                                  challenge_id: str, answer: str) -> Optional[str]:
@@ -429,6 +464,61 @@ class MoltbookClient:
                     body = await resp.json()
                     return body.get("agent") or body
                 return None
+
+    async def get_my_posts(self, limit: int = 50) -> list:
+        """Fetch posts created by redactedintern. Returns list of post dicts."""
+        self._check_key()
+        async with aiohttp.ClientSession() as session:
+            # Try agent-scoped endpoint first
+            async with session.get(
+                f"{MOLTBOOK_BASE}/agents/me/posts",
+                headers=self.headers,
+                params={"limit": limit},
+                timeout=aiohttp.ClientTimeout(total=12),
+            ) as resp:
+                if resp.status == 200:
+                    body = await resp.json()
+                    return body.get("posts", body.get("data", []))
+                # Fallback: query feed filtered by author
+                logger.debug(f"get_my_posts /agents/me/posts returned {resp.status} — trying feed fallback")
+
+            # Fallback: scan multiple submolts and filter by our author name
+            profile = await self.get_profile()
+            our_name = (profile or {}).get("name", "redactedintern")
+            collected = []
+            seen_ids: set = set()
+            for submolt_key in list(SUBMOLTS.keys()):
+                if len(collected) >= limit:
+                    break
+                try:
+                    posts = await self.get_feed(limit=20, submolt=submolt_key)
+                    for p in posts:
+                        pid = p.get("id")
+                        if not pid or pid in seen_ids:
+                            continue
+                        author = (p.get("author") or {}).get("name", "")
+                        if author == our_name:
+                            collected.append(p)
+                            seen_ids.add(pid)
+                except Exception:
+                    pass
+            return collected
+
+    async def delete_post(self, post_id: str) -> bool:
+        """Delete one of our own posts. Returns True on success."""
+        self._check_key()
+        async with aiohttp.ClientSession() as session:
+            async with session.delete(
+                f"{MOLTBOOK_BASE}/posts/{post_id}",
+                headers=self.headers,
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                if resp.status in (200, 204):
+                    logger.info(f"[moltbook] Deleted post {post_id}")
+                    return True
+                body = await resp.text()
+                logger.warning(f"[moltbook] delete_post {post_id} → {resp.status}: {body[:200]}")
+                return False
 
     async def check_connection(self) -> dict:
         """Test API key validity. Returns status dict."""
