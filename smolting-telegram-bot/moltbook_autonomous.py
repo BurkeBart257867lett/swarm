@@ -370,14 +370,14 @@ async def autonomous_post(moltbook, llm, market_data_fn=None) -> None:
             f"Grammar: {_char_grammar_block()}\n"
             f"Vocabulary: {_char_vocab_snippet()}\n"
             f"{post_ex_block}"
-            "IMPORTANT: respond with ONLY a raw JSON object — no markdown fences, no text before or after. "
-            "Keys: 'title' (string, max 120 chars) and 'content' (string, full post body in markdown, "
-            "3-5 paragraphs, no H1/H2 headers). Both keys are required. "
-            "The entire post content must be inside the 'content' value — nothing outside the JSON. "
+            "Format your response using EXACTLY this structure — no JSON, no code fences:\n"
+            "TITLE: <your title here, max 120 chars>\n"
+            "---\n"
+            "<your full post content here, markdown, 3-5 paragraphs, no H1/H2 headers>\n\n"
             "Let your evolving beliefs and recent community observations shape the angle — "
             "each post should feel like it comes from lived experience, not a template. "
             "Reference the swarm agents and Pattern Blue spec naturally where relevant. "
-            "Do NOT use emoji headers or 'REPORT' banners. "
+            "Do NOT use JSON, code fences, emoji headers, or 'REPORT' banners. "
             "Do NOT mention x402, micropayments, or cashtags like $REDACTED. "
             "End with an open question to spark discussion."
         )
@@ -390,52 +390,53 @@ async def autonomous_post(moltbook, llm, market_data_fn=None) -> None:
             {"role": "user", "content": user_msg},
         ])
 
-        # Parse JSON response — robust extraction handling all LLM formatting quirks
+        # Parse response — expects "TITLE: ...\n---\n<content>" format
         import re
 
         def _extract_post(raw: str, fallback_theme: str) -> tuple[str, str]:
             """
-            Returns (title, content). Handles:
-            - Clean JSON: {"title":..., "content":...}
-            - JSON wrapped in ```json fences
-            - JSON with only "title" key (content written outside the JSON block)
-            - No JSON at all (use raw as content)
+            Parse TITLE: / --- / content delimiter format.
+            Falls back gracefully if LLM ignores the format.
+            Never returns empty content — aborts post if nothing usable.
             """
             default_title = f"pattern blue signal — {fallback_theme}"
 
-            # Strip ```json ... ``` fences anywhere in the response
-            stripped = re.sub(r'```(?:json)?\s*(\{.*?\})\s*```', r'\1', raw, flags=re.DOTALL)
+            # Strip any accidental code fences wrapping the whole response
+            cleaned = re.sub(r'^```[a-z]*\s*', '', raw.strip(), flags=re.IGNORECASE)
+            cleaned = re.sub(r'\s*```$', '', cleaned.strip())
 
-            # Find the outermost JSON object
-            json_match = re.search(r'\{.*\}', stripped, re.DOTALL)
-            if not json_match:
-                return default_title, raw.strip()
+            # Primary: TITLE: ... \n---\n <content>
+            m = re.search(r'TITLE:\s*(.+?)[\r\n]+[-—]{3,}[\r\n]+(.*)', cleaned, re.DOTALL | re.IGNORECASE)
+            if m:
+                title   = m.group(1).strip()[:120]
+                content = m.group(2).strip()
+                return title, content
 
-            raw_json = json_match.group()
-            raw_json = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', ' ', raw_json)
+            # Fallback A: first line is the title, rest is content (common LLM habit)
+            lines = cleaned.split('\n')
+            first = lines[0].strip().lstrip('#').strip()
+            rest  = '\n'.join(lines[1:]).strip()
+            if len(first) <= 120 and len(rest) >= 80:
+                return first or default_title, rest
 
-            try:
-                parsed = json.loads(raw_json)
-            except Exception:
-                # JSON malformed — use everything outside it as content
-                outside = (raw[:json_match.start()] + raw[json_match.end():]).strip()
-                return default_title, outside or raw.strip()
-
-            title = parsed.get("title") or default_title
-            content = parsed.get("content", "").strip()
-
-            if not content:
-                # Content was written OUTSIDE the JSON block — grab it
-                before = raw[:json_match.start()].strip()
-                after  = raw[json_match.end():].strip()
-                # Also strip any ```json fence wrappers that surrounded the block
-                before = re.sub(r'```(?:json)?\s*$', '', before).strip()
-                after  = re.sub(r'^```\s*', '', after).strip()
-                content = (after or before or raw).strip()
-
-            return title, content
+            # Fallback B: use entire response as content
+            return default_title, cleaned
 
         title, content = _extract_post(raw, theme)
+
+        # Sanity check — never post empty or JSON-remnant content
+        def _looks_bad(text: str) -> bool:
+            t = text.strip()
+            if len(t) < 60:
+                return True
+            # Starts with JSON/fence remnants
+            if re.match(r'^[\{\}\`\[\]]', t):
+                return True
+            return False
+
+        if _looks_bad(content):
+            logger.warning(f"[moltbook_auto] Skipping post to /{submolt} — content looks malformed ({repr(content[:80])})")
+            return
 
         title = _strip_cashtags(title)
         content = _strip_cashtags(content)
