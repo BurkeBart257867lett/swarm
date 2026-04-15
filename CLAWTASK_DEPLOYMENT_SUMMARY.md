@@ -83,4 +83,4 @@ python python/hermes_delegation_executor.py --manifest fs/clawtasks_v1.json --mo
 python python/hermes_delegation_executor.py --manifest fs/clawtasks_v1.json --mode dispatch
 ```
 
-> **Note (personal fork)**: The `--mode dispatch` flag was missing from the execute example above — added it back. Also worth noting that `dispatch_all_clawtasks()` can take a while locally if agents are rate-limited; consider running with `--dry-run` first when testing.
+> **Note (personal):** The `--mode dispatch` flag was missing from the execute example above — fixed. Easy to miss since preview/validate both work fine without it.
