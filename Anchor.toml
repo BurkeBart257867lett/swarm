@@ -15,7 +15,7 @@ mandala_settler = "MANDALA11111111111111111111111111111111111111"
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "devnet"          # Change to "mainnet" or "devnet" as needed
+cluster = "localnet"          # Change to "mainnet" or "devnet" as needed
 wallet = "~/.config/solana/id.json"
 
 [scripts]
