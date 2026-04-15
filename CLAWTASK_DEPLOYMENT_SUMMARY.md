@@ -83,4 +83,4 @@ python python/hermes_delegation_executor.py --manifest fs/clawtasks_v1.json --mo
 python python/hermes_delegation_executor.py --manifest fs/clawtasks_v1.json --mode dispatch
 ```
 
-> **Note (personal)**: The `--mode dispatch` flag was missing from the execute example above — added it here for completeness. Easy to miss when copy-pasting for local testing.
+> **Note (personal fork):** The original execute example above had a truncated flag (`--manifest fs/clawtasks_v1.js` — missing `on` and `--mode dispatch`). Fixed above for my own reference.
