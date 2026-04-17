@@ -16,7 +16,8 @@ from .util import function_to_json, debug_print
 DEFAULT_MODEL = "gpt-4o-mini"  # switched to mini for lower cost during personal experiments
 
 # Maximum number of turns before we force-stop the loop
-MAX_TURNS = 100
+# Reduced from 100 to 25 to avoid runaway loops eating API credits
+MAX_TURNS = 25
 
 
 class Swarm:
@@ -83,5 +84,4 @@ class Swarm:
         debug: bool,
     ) -> Response:
         """Execute tool calls returned by the model and collect results."""
-        function_map = {f.__name__: f for f in functions}
-        partial_response = Response(mes
+        function_map = {f.__n
