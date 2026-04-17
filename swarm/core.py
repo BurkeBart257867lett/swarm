@@ -13,7 +13,7 @@ from .types import Agent, AgentFunction, ChatCompletionMessageToolCall, Response
 from .util import function_to_json, debug_print
 
 # Default model used when none is specified on the agent
-DEFAULT_MODEL = "gpt-4o"
+DEFAULT_MODEL = "gpt-4o-mini"  # switched to mini for lower cost during personal experiments
 
 # Maximum number of turns before we force-stop the loop
 MAX_TURNS = 100
@@ -84,99 +84,4 @@ class Swarm:
     ) -> Response:
         """Execute tool calls returned by the model and collect results."""
         function_map = {f.__name__: f for f in functions}
-        partial_response = Response(messages=[], agent=None, context_variables={})
-
-        for tool_call in tool_calls:
-            name = tool_call.function.name
-            if name not in function_map:
-                debug_print(debug, f"Tool {name} not found in function map.")
-                partial_response.messages.append(
-                    {"role": "tool", "tool_call_id": tool_call.id, "content": f"Error: tool '{name}' not found."}
-                )
-                continue
-
-            args = json.loads(tool_call.function.arguments)
-            debug_print(debug, f"Processing tool call: {name} with args", args)
-
-            func = function_map[name]
-            # Inject context_variables if the function expects them
-            import inspect
-            if "context_variables" in inspect.signature(func).parameters:
-                args["context_variables"] = context_variables
-
-            raw_result = func(**args)
-            result: Result = self._handle_function_result(raw_result, debug)
-
-            partial_response.messages.append(
-                {"role": "tool", "tool_call_id": tool_call.id, "content": result.value}
-            )
-            context_variables.update(result.context_variables)
-            if result.agent:
-                partial_response.agent = result.agent
-
-        partial_response.context_variables = context_variables
-        return partial_response
-
-    def _handle_function_result(self, result: Any, debug: bool) -> Result:
-        """Normalize a function return value into a Result object."""
-        if isinstance(result, Result):
-            return result
-        if isinstance(result, Agent):
-            return Result(value=json.dumps({"assistant": result.name}), agent=result)
-        try:
-            return Result(value=str(result))
-        except Exception as e:
-            error_msg = f"Failed to cast response to string: {e}"
-            debug_print(debug, error_msg)
-            raise TypeError(error_msg) from e
-
-    def run(
-        self,
-        agent: Agent,
-        messages: list[dict],
-        context_variables: Optional[dict] = None,
-        model_override: Optional[str] = None,
-        stream: bool = False,
-        debug: bool = False,
-        max_turns: int = MAX_TURNS,
-        execute_tools: bool = True,
-    ) -> Response:
-        """Run the agent loop until completion or max_turns is reached."""
-        context_variables = context_variables or {}
-        history = copy.deepcopy(messages)
-        init_len = len(messages)
-        active_agent = agent
-
-        while len(history) - init_len < max_turns:
-            completion = self.get_chat_completion(
-                agent=active_agent,
-                history=history,
-                context_variables=context_variables,
-                model_override=model_override,
-                stream=stream,
-                debug=debug,
-            )
-
-            message = completion.choices[0].message
-            debug_print(debug, "Received completion:", message)
-            message_dict = json.loads(message.model_dump_json())
-            message_dict["sender"] = active_agent.name
-            history.append(message_dict)
-
-            if not message.tool_calls or not execute_tools:
-                debug_print(debug, "Ending turn — no tool calls or execute_tools=False.")
-                break
-
-            partial_response = self.handle_tool_calls(
-                message.tool_calls, active_agent.functions, context_variables, debug
-            )
-            history.extend(partial_response.messages)
-            context_variables.update(partial_response.context_variables)
-            if partial_response.agent:
-                active_agent = partial_response.agent
-
-        return Response(
-            messages=history[init_len:],
-            agent=active_agent,
-            context_variables=context_variables,
-        )
+        partial_response = Response(mes
