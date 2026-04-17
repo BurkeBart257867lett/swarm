@@ -11,6 +11,9 @@ conflicts when importing alongside other libraries (e.g. requests, httpx).
 
 Personal note: Also exporting __version__ in __all__ so I can quickly
 check the version with `swarm.__version__` or `from swarm import __version__`.
+
+Personal note: Aliased AgentFunction as Fn as well for ultra-short usage
+in quick scripts/notebooks where brevity matters.
 """
 
 __version__ = "0.1.0"
@@ -22,6 +25,7 @@ from swarm.types import AgentFunction, Result, Response
 
 # Convenience aliases
 AgentFn = AgentFunction
+Fn = AgentFunction  # even shorter alias for quick scripts/notebooks
 SwarmResponse = Response  # avoids collision with requests.Response / httpx.Response
 
 __all__ = [
@@ -30,6 +34,7 @@ __all__ = [
     "Agent",
     "AgentFunction",
     "AgentFn",
+    "Fn",
     "Result",
     "Response",
     "SwarmResponse",
